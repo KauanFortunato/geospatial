@@ -14,11 +14,6 @@ import {
 import {
   HalfFloatType,
   NoToneMapping,
-  NoColorSpace,
-  LinearMipMapLinearFilter,
-  LinearFilter,
-  RepeatWrapping,
-  RedFormat,
   Mesh,
   PCFSoftShadowMap,
   PerspectiveCamera,
@@ -28,37 +23,30 @@ import {
   Matrix4,
   WebGLRenderer,
   TextureLoader,
+  Plane,
   Texture,
+  AmbientLight,
+  BoxGeometry,
+  SphereGeometry,
+  CatmullRomCurve3,
+  CanvasTexture,
+  SpriteMaterial,
+  Group,
+  Sprite,
+  Line,
+  LineBasicMaterial,
+  BufferGeometry,
+  MeshStandardMaterial,
 } from "three";
 import { Globe } from "../globe";
-import {
-  AerialPerspectiveEffect,
-  PrecomputedTexturesLoader,
-  SkyMaterial,
-} from "@takram/three-atmosphere";
-import {
-  DitheringEffect,
-  LensFlareEffect,
-  createHaldLookupTexture,
-} from "@takram/three-geospatial-effects";
-import {
-  getMoonDirectionECI,
-  getSunDirectionECI,
-  getECIToECEFRotationMatrix,
-} from "../utils/celestialDirections";
-import {
-  createData3DTextureLoaderClass,
-  Geodetic,
-  PointOfView,
-  parseUint8Array,
-  radians,
-  STBNLoader,
-} from "@takram/three-geospatial";
-import {
-  CLOUD_SHAPE_DETAIL_TEXTURE_SIZE,
-  CLOUD_SHAPE_TEXTURE_SIZE,
-  CloudsEffect,
-} from '@takram/three-clouds'
+import { AerialPerspectiveEffect, PrecomputedTexturesLoader, SkyMaterial } from "@takram/three-atmosphere";
+import { DitheringEffect, LensFlareEffect, createHaldLookupTexture } from "@takram/three-geospatial-effects";
+import { getMoonDirectionECI, getSunDirectionECI, getECIToECEFRotationMatrix } from "../utils/celestialDirections";
+import { Geodetic, PointOfView, radians } from "@takram/three-geospatial";
+import { CloudsEffect } from "@takram/three-clouds";
+import { Team } from "../models/Team";
+import { Driver } from "../models/Driver";
+import { Car } from "../models/Car";
 
 let globe: Globe;
 let renderer: WebGLRenderer;
@@ -70,13 +58,69 @@ let composer: EffectComposer;
 let lutTexture: Texture;
 let lutEffect: LUT3DEffect;
 let clouds: CloudsEffect;
+let trackCurve: CatmullRomCurve3 | null = null;
+let trackTime = 0;
+let currentFollowDriver: Driver | null = null;
+const initialPositions: Vector3[] = [];
+const drivers: Driver[] = [];
+const labelOffset = new Vector3(0, 0, 30);
+
+const longitude = -9.394761567056307; // degrees
+const latitude = 38.75025825516866; // degrees
+// Calculate the center point on the globe in ECEF coordinates
+const centerECEF = new Geodetic(radians(longitude), radians(latitude), 0).toECEF();
+const cameraUp = centerECEF.clone().normalize();
+
+const rawLLA = [
+  [-9.392928078775599, 38.749255151676735, 188],
+  [-9.392958428064668, 38.749343493902465, 188],
+  [-9.392858320990218, 38.74938142433314, 188],
+  [-9.392882174967271, 38.749474958015774, 188],
+  [-9.392780327138661, 38.74951615683619, 188],
+];
+
+const cameraPositions: Vector3[] = [
+  new Vector3(4914449.702275728, -812735.0475000107, 3970834.0878650616),
+  new Vector3(4914668.737085846, -813010.9913910049, 3971105.824077781),
+];
+
+for (const [lon, lat, alt] of rawLLA) {
+  const geo = new Geodetic(radians(lon), radians(lat), alt);
+  initialPositions.push(geo.toECEF());
+}
 
 const sunDirection = new Vector3();
 const moonDirection = new Vector3();
 const rotationMatrix = new Matrix4();
 
+async function loadGPXasECEF(url: string): Promise<Vector3[]> {
+  const res = await fetch(url);
+  const text = await res.text();
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(text, "application/xml");
+  const trkpts = xml.querySelectorAll("trkpt");
+
+  const points: Vector3[] = [];
+
+  trkpts.forEach((pt) => {
+    const lat = parseFloat(pt.getAttribute("lat") || "0");
+    const lon = parseFloat(pt.getAttribute("lon") || "0");
+
+    // Extrai a elevação (altitude) se existir
+    const eleElem = pt.querySelector("ele");
+    const alt = eleElem ? parseFloat(eleElem.textContent || "0") : 0;
+
+    // Adiciona um pequeno offset de +2 metros para evitar sobreposição
+    const geo = new Geodetic(radians(lon), radians(lat), alt + 50);
+    points.push(geo.toECEF());
+  });
+
+  console.log("GPX Points:", points.length, points);
+  return points;
+}
+
 // Tokyo time 9:00AM
-const referenceDate = new Date("2024-03-01T09:00:00+09:00");
+const referenceDate = new Date("2024-01-01T22:00:00+09:00");
 
 function init(): void {
   // scene
@@ -86,14 +130,14 @@ function init(): void {
   renderer = new WebGLRenderer({
     powerPreference: "high-performance",
     antialias: true,
-    stencil: false,
+    stencil: true,
     depth: true,
-    logarithmicDepthBuffer: false,
+    logarithmicDepthBuffer: true,
   });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = NoToneMapping;
-  renderer.toneMappingExposure = 10;
+  renderer.toneMappingExposure = 0.5;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFSoftShadowMap;
 
@@ -102,38 +146,85 @@ function init(): void {
     container.appendChild(renderer.domElement);
   }
 
-  // camera
-  const aspect = window.innerWidth / window.innerHeight;
-  camera = new PerspectiveCamera(75, aspect, 10, 1e6);
+  // Ligh
+  const ambientLight = new AmbientLight(0xffffff, 0.5);
+  scene.add(ambientLight);
 
-  // --- New setup using geospatial coordinates ---
-  const longitude = 139.7671; // degrees (Tokyo)
-  const latitude = 35.6812; // degrees
-  const heading = 180; // degrees
-  const pitch = -10; // degrees
-  const distance = 3000; // meters
-
-  // Calculate the center point on the globe in ECEF coordinates
-  const centerECEF = new Geodetic(
-    radians(longitude),
-    radians(latitude)
-  ).toECEF(); // Converts lon/lat to a Vector3 position
-
-  // Calculate camera position and orientation based on the point of view
-  new PointOfView(distance, radians(heading), radians(pitch)).decompose(
-    centerECEF, // The point to look towards (target)
-    camera.position, // Vector3 to store the calculated camera position
-    camera.quaternion // Quaternion to store the calculated camera orientation
-  );
+  // Create drivers and teams
+  createDriversAndTeams();
+  const followContainer = document.getElementById("follow-buttons");
+  drivers.forEach((driver) => {
+    const btn = document.createElement("button");
+    btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
+    btn.addEventListener("click", () => {
+      if (currentFollowDriver === driver) {
+        currentFollowDriver = null;
+        btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
+      } else {
+        currentFollowDriver = driver;
+        // Opcional: resetar os outros botões
+        document.querySelectorAll("#follow-buttons button").forEach((b) => {
+          b.textContent = `Seguir ${b.textContent?.split(" ")[1]}`;
+        });
+        btn.textContent = "Parar de Seguir";
+      }
+    });
+    followContainer?.appendChild(btn);
+  });
 
   // Ensure the camera's up vector is set correctly (usually Y-up for camera space)
   // The .decompose method should handle this via the quaternion,
   // but explicitly setting it can prevent issues if the camera was previously manipulated.
-  camera.up.set(0, 1, 0);
 
   // Update projection matrix if aspect ratio changed
+  // camera
+  const aspect = window.innerWidth / window.innerHeight;
+  camera = new PerspectiveCamera(75, aspect, 10, 1e6);
+
+  camera.position.copy(cameraPositions[1]); // Use the first camera position from the array
+  camera.up.copy(cameraUp);
+  camera.lookAt(centerECEF);
+
   camera.aspect = aspect;
   camera.updateProjectionMatrix();
+
+  const center = new Geodetic(radians(longitude), radians(latitude), 0).toECEF();
+  const radiusMeters = 650; // metade do tamanho do quadrado
+
+  // Criar vetores locais: Leste, Norte, Cima (ENU)
+  const up = center.clone().normalize(); // direção radial (Z)
+  const east = new Vector3(0, 0, 1).cross(up).normalize(); // Eixo Leste
+  const north = up.clone().cross(east).normalize(); // Eixo Norte
+
+  // Calcular pontos da borda do quadrado
+  const eastOffset = east.clone().multiplyScalar(radiusMeters);
+  const westOffset = east.clone().multiplyScalar(-radiusMeters);
+  const northOffset = north.clone().multiplyScalar(radiusMeters);
+  const southOffset = north.clone().multiplyScalar(-radiusMeters);
+
+  // Pontos dos 4 limites
+  const eastPoint = center.clone().add(eastOffset);
+  const westPoint = center.clone().add(westOffset);
+  const northPoint = center.clone().add(northOffset);
+  const southPoint = center.clone().add(southOffset);
+
+  // Normais dos planos (apontam para dentro do quadrado)
+  const eastNormal = east.clone().negate();
+  const westNormal = east.clone();
+  const northNormal = north.clone().negate();
+  const southNormal = north.clone();
+
+  // Criar os planos com base nas normais e pontos
+  const clippingPlanes = [
+    new Plane(eastNormal, -eastNormal.dot(eastPoint)),
+    new Plane(westNormal, -westNormal.dot(westPoint)),
+    new Plane(northNormal, -northNormal.dot(northPoint)),
+    new Plane(southNormal, -southNormal.dot(southPoint)),
+  ];
+
+  // Ativar no renderer
+  renderer.clippingPlanes = clippingPlanes;
+  renderer.localClippingEnabled = true;
 
   // Create the sky
   skyMaterial = new SkyMaterial();
@@ -153,8 +244,8 @@ function init(): void {
     correctAltitude: true,
     inscatter: true,
     photometric: true,
-    skyIrradiance: true,
-    sunIrradiance: true,
+    skyIrradiance: false,
+    sunIrradiance: false,
     transmittance: true,
     irradianceScale: 2 / Math.PI,
     sky: true,
@@ -169,36 +260,14 @@ function init(): void {
   clouds.shadow.maxFar = 1e5;
   clouds.shadow.cascadeCount = 2;
   clouds.shadow.mapSize.set(512, 512);
-  clouds.shadow.splitMode = 'practical';
+  clouds.shadow.splitMode = "practical";
   clouds.shadow.splitLambda = 0.71;
-
-  // Add event listener with proper type
-  clouds.events.addEventListener('change', (event) => {
-    if (event.property !== undefined) {
-      onCloudsChange(event.property);
-    }
-  });
 
   // Load precomputed textures.
   const basePath = import.meta.env.BASE_URL || "/";
   new PrecomputedTexturesLoader()
     .setTypeFromRenderer(renderer)
     .load(basePath + "assets/atmosphere", onPrecomputedTexturesLoad);
-
-  // Load textures for the clouds.
-  new TextureLoader().load(basePath + 'assets/clouds/local_weather.png', onLocalWeatherLoad);
-  new (createData3DTextureLoaderClass(parseUint8Array, {
-    width: CLOUD_SHAPE_TEXTURE_SIZE,
-    height: CLOUD_SHAPE_TEXTURE_SIZE,
-    depth: CLOUD_SHAPE_TEXTURE_SIZE
-  }))().load(basePath + 'assets/clouds/shape.bin', onShapeLoad);
-  new (createData3DTextureLoaderClass(parseUint8Array, {
-    width: CLOUD_SHAPE_DETAIL_TEXTURE_SIZE,
-    height: CLOUD_SHAPE_DETAIL_TEXTURE_SIZE,
-    depth: CLOUD_SHAPE_DETAIL_TEXTURE_SIZE
-  }))().load(basePath + 'assets/clouds/shape_detail.bin', onShapeDetailLoad);
-  new TextureLoader().load(basePath + 'assets/clouds/turbulence.png', onTurbulenceLoad);
-  new STBNLoader().load(basePath + 'assets/core/stbn.bin', onSTBNLoad);
 
   // --------------------------------
   //  Color Grading is not working
@@ -220,84 +289,93 @@ function init(): void {
     frameBufferType: HalfFloatType,
     multisampling: 8,
   });
+
   const normalPass = new NormalPass(scene, camera);
   aerialPerspective.normalBuffer = normalPass.texture;
 
   composer.addPass(new RenderPass(scene, camera));
   composer.addPass(normalPass);
-  composer.addPass(new EffectPass(camera, clouds, aerialPerspective));
+  composer.addPass(new EffectPass(camera, aerialPerspective));
   composer.addPass(new EffectPass(camera, new LensFlareEffect()));
-  composer.addPass(
-    new EffectPass(camera, new ToneMappingEffect({ mode: ToneMappingMode.AGX }))
-  );
+  composer.addPass(new EffectPass(camera, new ToneMappingEffect({ mode: ToneMappingMode.AGX })));
   composer.addPass(new EffectPass(camera, new SMAAEffect()));
   composer.addPass(new EffectPass(camera, new DitheringEffect()));
 
   window.addEventListener("resize", onWindowResize);
+
+  const gpxUrl = new URL("./estoril-peter-auto.gpx", import.meta.url).href;
+  loadGPXasECEF(gpxUrl).then((points) => {
+    if (points.length > 1) {
+      console.log("GPX Points loaded:", points.length);
+      trackCurve = new CatmullRomCurve3(points, false); // false = circuito aberto
+    } else {
+      console.warn("Nenhum ponto GPX carregado");
+    }
+  });
+
+  // Camera controls
+  document.getElementById("camera-position-1")?.addEventListener("click", () => {
+    animateCameraTo(cameraPositions[0], cameraUp, centerECEF, 1500);
+  });
+
+  document.getElementById("camera-position-2")?.addEventListener("click", () => {
+    animateCameraTo(cameraPositions[1], cameraUp, centerECEF, 1500);
+  });
 }
 
-// Use a simpler approach with just the property name
-function onCloudsChange(property: string): void {
-  switch (property) {
-    case 'atmosphereOverlay':
-      aerialPerspective.overlay = clouds.atmosphereOverlay;
-      break;
-    case 'atmosphereShadow':
-      aerialPerspective.shadow = clouds.atmosphereShadow;
-      break;
-    case 'atmosphereShadowLength':
-      aerialPerspective.shadowLength = clouds.atmosphereShadowLength;
-      break;
+function render(): void {
+  const date = referenceDate;
+  getECIToECEFRotationMatrix(date, rotationMatrix);
+  getSunDirectionECI(date, sunDirection).applyMatrix4(rotationMatrix);
+  getMoonDirectionECI(date, moonDirection).applyMatrix4(rotationMatrix);
+
+  skyMaterial.sunDirection.copy(sunDirection);
+  skyMaterial.moonDirection.copy(moonDirection);
+
+  aerialPerspective.sunDirection.copy(sunDirection);
+  aerialPerspective.moonDirection.copy(moonDirection);
+
+  globe.update();
+  // console.log("Camera position:", camera.position.toArray());
+
+  // Update effect materials with current camera settings
+  if (composer) {
+    composer.passes.forEach((pass) => {
+      if (pass.fullscreenMaterial instanceof EffectMaterial) {
+        pass.fullscreenMaterial.adoptCameraSettings(camera);
+      }
+    });
+
+    if (trackCurve && drivers.length > 0) {
+      trackTime += 0.00005;
+      if (trackTime > 1) trackTime = 0;
+
+      // Add null check for trackCurve
+      const spacing = 0.005;
+
+      drivers.forEach((driver, index) => {
+        const t = (trackTime - index * spacing + 1) % 1;
+        const pos = trackCurve?.getPointAt(t);
+        if (pos) {
+          driver.positionOnTrack(pos);
+          driver.updateLabel(camera, labelOffset);
+        }
+      });
+    }
+
+    if (currentFollowDriver && trackCurve) {
+      const pos = currentFollowDriver.car.mesh.position.clone();
+      const tangent = trackCurve.getTangentAt(trackTime);
+      const up = pos.clone().normalize();
+      const cameraOffset = tangent.clone().multiplyScalar(-30).add(up.clone().multiplyScalar(15));
+      const cameraPos = pos.clone().add(cameraOffset);
+      camera.position.copy(cameraPos);
+      camera.up.copy(up);
+      camera.lookAt(pos.clone().add(tangent.clone().multiplyScalar(10)));
+    }
+
+    composer.render();
   }
-}
-
-function onLocalWeatherLoad(texture: Texture): void {
-  texture.minFilter = LinearMipMapLinearFilter;
-  texture.magFilter = LinearFilter;
-  texture.wrapS = RepeatWrapping;
-  texture.wrapT = RepeatWrapping;
-  texture.colorSpace = NoColorSpace;
-  texture.needsUpdate = true;
-  clouds.localWeatherTexture = texture;
-}
-
-function onShapeLoad(texture: any): void {
-  texture.format = RedFormat;
-  texture.minFilter = LinearFilter;
-  texture.magFilter = LinearFilter;
-  texture.wrapS = RepeatWrapping;
-  texture.wrapT = RepeatWrapping;
-  texture.wrapR = RepeatWrapping;
-  texture.colorSpace = NoColorSpace;
-  texture.needsUpdate = true;
-  clouds.shapeTexture = texture;
-}
-
-function onShapeDetailLoad(texture: any): void {
-  texture.format = RedFormat;
-  texture.minFilter = LinearFilter;
-  texture.magFilter = LinearFilter;
-  texture.wrapS = RepeatWrapping;
-  texture.wrapT = RepeatWrapping;
-  texture.wrapR = RepeatWrapping;
-  texture.colorSpace = NoColorSpace;
-  texture.needsUpdate = true;
-  clouds.shapeDetailTexture = texture;
-}
-
-function onTurbulenceLoad(texture: Texture): void {
-  texture.minFilter = LinearMipMapLinearFilter;
-  texture.magFilter = LinearFilter;
-  texture.wrapS = RepeatWrapping;
-  texture.wrapT = RepeatWrapping;
-  texture.colorSpace = NoColorSpace;
-  texture.needsUpdate = true;
-  clouds.turbulenceTexture = texture;
-}
-
-function onSTBNLoad(texture: any): void {
-  aerialPerspective.stbnTexture = texture;
-  clouds.stbnTexture = texture;
 }
 
 function onPrecomputedTexturesLoad(textures: any): void {
@@ -314,31 +392,127 @@ function onWindowResize(): void {
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-function render(): void {
-  const date = referenceDate;
-  getECIToECEFRotationMatrix(date, rotationMatrix);
-  getSunDirectionECI(date, sunDirection).applyMatrix4(rotationMatrix);
-  getMoonDirectionECI(date, moonDirection).applyMatrix4(rotationMatrix);
+function createDriverLabel(text: string, color: string): Sprite {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "white";
+  ctx.font = "bold 50px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+  const texture = new CanvasTexture(canvas);
+  const material = new SpriteMaterial({
+    map: texture,
+    depthTest: false,
+    depthWrite: false,
+    transparent: true,
+    toneMapped: false,
+  });
+  const sprite = new Sprite(material);
+  sprite.scale.set(40, 10, 1);
+  sprite.renderOrder = 999;
+  return sprite;
+}
 
-  skyMaterial.sunDirection.copy(sunDirection);
-  skyMaterial.moonDirection.copy(moonDirection);
+function animateCameraTo(targetPos: Vector3, targetUp: Vector3, targetLookAt: Vector3, duration = 2000) {
+  const startPos = camera.position.clone();
+  const startUp = camera.up.clone();
+  const startQuat = camera.quaternion.clone();
 
-  aerialPerspective.sunDirection.copy(sunDirection);
-  aerialPerspective.moonDirection.copy(moonDirection);
+  // Criar uma câmera temporária para calcular a rotação final
+  const tempCam = camera.clone();
+  tempCam.position.copy(targetPos);
+  tempCam.up.copy(targetUp);
+  tempCam.lookAt(targetLookAt);
+  tempCam.updateMatrixWorld();
+  const targetQuat = tempCam.quaternion.clone();
 
-  clouds.sunDirection.copy(sunDirection);
+  const startTime = performance.now();
 
-  globe.update();
+  function update() {
+    const elapsed = performance.now() - startTime;
+    const t = Math.min(elapsed / duration, 1);
 
-  // Update effect materials with current camera settings
-  if (composer) {
-    composer.passes.forEach((pass) => {
-      if (pass.fullscreenMaterial instanceof EffectMaterial) {
-        pass.fullscreenMaterial.adoptCameraSettings(camera);
-      }
-    });
-    composer.render();
+    // Interpolar posição e up
+    camera.position.lerpVectors(startPos, targetPos, t);
+    camera.up.lerpVectors(startUp, targetUp, t);
+    camera.quaternion.slerpQuaternions(startQuat, targetQuat, t);
+
+    camera.updateMatrixWorld();
+
+    if (t < 1) {
+      requestAnimationFrame(update);
+    }
   }
+
+  requestAnimationFrame(update);
+}
+
+function createDriversAndTeams() {
+  // Create drivers and teams
+  let redBull = new Team("Red Bull Racing", "#1E41FF");
+  let mercedes = new Team("Mercedes-AMG Petronas", "#00D2BE");
+  let ferrari = new Team("Scuderia Ferrari", "#DC0000");
+  let mclaren = new Team("McLaren F1 Team", "#FF8700");
+
+  let verstappen = new Driver("Max Verstappen", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB19", redBull));
+  let oscar = new Driver("Oscar Piastri", "pia", 81, "Australia", 7, 0, new Car(81, "MCL60", mclaren));
+  let hamilton = new Driver("Lewis Hamilton", "ham", 44, "United Kingdom", 3, 0, new Car(44, "W14", ferrari));
+  let kimi = new Driver("Kimi Räikkönen", "rak", 7, "Finland", 4, 0, new Car(7, "C42", mercedes));
+
+  // Set initial positions for the drivers
+  verstappen.positionOnTrack(initialPositions[0]);
+  kimi.positionOnTrack(initialPositions[1]);
+  oscar.positionOnTrack(initialPositions[2]);
+  hamilton.positionOnTrack(initialPositions[3]);
+
+  // Add drivers to the scene
+  drivers.push(verstappen, oscar, hamilton, kimi);
+
+  drivers.forEach((driver) => {
+    driver.label = createDriverLabel(driver.acronym.toUpperCase(), driver.car.team.color);
+    scene.add(driver.label);
+
+    const lineMaterial = new LineBasicMaterial({ color: 0xffffff });
+    const lineGeometry = new BufferGeometry().setFromPoints([
+      driver.car.mesh.position,
+      driver.car.mesh.position.clone(),
+    ]);
+    driver.line = new Line(lineGeometry, lineMaterial);
+    scene.add(driver.line);
+  });
+
+  drivers.forEach((driver) => {
+    scene.add(driver.car.mesh);
+  });
+
+  renderScoreboard(drivers);
+}
+
+function renderScoreboard(drivers: Driver[]): void {
+  const body = document.getElementById("scoreboard-body");
+  if (!body) return;
+
+  body.innerHTML = "";
+
+  drivers.forEach((driver) => {
+    const row = document.createElement("div");
+    row.className = "driver-row";
+    row.style.borderLeftColor = driver.car.team.color;
+
+    row.innerHTML = `
+      <p class="position">${driver.position}</p>
+      <p class="acronym">-${driver.acronym.toLocaleUpperCase()}</p>
+      <p class="interval">${driver.interval}</p>
+      <div class="tire" style="background-color: ${driver.car.team.color};"></div>
+    `;
+
+    body.appendChild(row);
+  });
 }
 
 window.addEventListener("load", init);

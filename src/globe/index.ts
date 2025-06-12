@@ -15,16 +15,11 @@ export class Globe {
   scene: Scene;
   camera: PerspectiveCamera;
   renderer: WebGLRenderer;
-  tiles: TilesRenderer;
+  tiles: any;
   controls: GlobeControls;
   private _initialInteractionPerformed: boolean = false;
 
-  constructor(
-    scene: Scene,
-    camera: PerspectiveCamera,
-    renderer: WebGLRenderer,
-    disableControls: boolean = false
-  ) {
+  constructor(scene: Scene, camera: PerspectiveCamera, renderer: WebGLRenderer, disableControls: boolean = false) {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
@@ -38,9 +33,7 @@ export class Globe {
     );
     this.tiles.registerPlugin(
       new GLTFExtensionsPlugin({
-        dracoLoader: new DRACOLoader().setDecoderPath(
-          "https://www.gstatic.com/draco/v1/decoders/"
-        ),
+        dracoLoader: new DRACOLoader().setDecoderPath("https://www.gstatic.com/draco/v1/decoders/"),
       })
     );
     this.tiles.registerPlugin(new TileCompressionPlugin());
@@ -56,19 +49,18 @@ export class Globe {
     this.tiles.setResolutionFromRenderer(this.camera, this.renderer);
     this.tiles.setCamera(this.camera);
 
-    this.controls = new GlobeControls(
-      this.scene,
-      this.camera,
-      this.renderer.domElement,
-      this.tiles
-    );
+    this.tiles.maxScreenSpaceError = 1.0;
+    this.tiles.lodUpdateStrategy = "all";
+    this.tiles.downloadQueueMaxPriority = 10;
+    this.tiles.errorTarget = 2;
+    this.tiles.disposeInactiveTiles = false;
+
+    this.controls = new GlobeControls(this.scene, this.camera, this.renderer.domElement, this.tiles);
     this.controls.enableDamping = true;
     this.controls.enabled = !disableControls;
 
     if (disableControls) {
-      const activateControlsAndRedispatch = (
-        event: PointerEvent | WheelEvent
-      ) => {
+      const activateControlsAndRedispatch = (event: PointerEvent | WheelEvent) => {
         // If controls have already been activated by a different event type
         // (e.g., pointerdown activated, and now the wheel listener fires),
         // this flag will be true. In this case, we do nothing here, as the
@@ -87,30 +79,21 @@ export class Globe {
           newEventToRedispatch = new WheelEvent(event.type, event);
         } else {
           // Should not happen with correctly typed event listeners
-          console.warn(
-            "Globe: Unknown event type for control activation:",
-            event
-          );
+          console.warn("Globe: Unknown event type for control activation:", event);
           return;
         }
 
         this.renderer.domElement.dispatchEvent(newEventToRedispatch);
-        console.log(
-          `Globe controls enabled; ${event.type} event re-dispatched.`
-        );
+        console.log("Globe controls enabled; ${event.type} event re-dispatched.");
       };
 
       // Add one-time listeners for pointerdown and wheel events
-      this.renderer.domElement.addEventListener(
-        "pointerdown",
-        activateControlsAndRedispatch as EventListener,
-        { once: true }
-      );
-      this.renderer.domElement.addEventListener(
-        "wheel",
-        activateControlsAndRedispatch as EventListener,
-        { once: true }
-      );
+      this.renderer.domElement.addEventListener("pointerdown", activateControlsAndRedispatch as EventListener, {
+        once: true,
+      });
+      this.renderer.domElement.addEventListener("wheel", activateControlsAndRedispatch as EventListener, {
+        once: true,
+      });
     }
   }
 
@@ -132,9 +115,7 @@ export class Globe {
     if (creditsElement) {
       creditsElement.innerText = attributions;
     } else {
-      console.warn(
-        'Credits element not found in the DOM. Make sure an element with id="credits" exists.'
-      );
+      console.warn('Credits element not found in the DOM. Make sure an element with id="credits" exists.');
     }
   }
 }

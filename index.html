@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -9,6 +9,63 @@
   <body>
     <div id="container"></div>
     <div id="credits"></div>
+
+    <div id="scoreboard">
+      <div class="scoreboard-header">
+        <img src="assets/image.png" alt="F1 Logo" class="f1-logo" />
+        <div class="lap-info">LAP <span id="lap-number">0</span> / 66</div>
+      </div>
+      <div id="scoreboard-body" class="scoreboard-body">
+        <!-- Linhas dos pilotos serão inseridas aqui dinamicamente -->
+      </div>
+    </div>
+
+    <div id="controls">
+      <div class="header">
+        <h1>Controles de câmera</h1>
+      </div>
+
+      <div class="default-positions">
+        <button id="camera-position-1">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            fill="currentColor"
+            class="bi bi-camera-reels-fill"
+            viewBox="0 0 16 16"
+          >
+            <path d="M6 3a3 3 0 1 1-6 0 3 3 0 0 1 6 0" />
+            <path d="M9 6a3 3 0 1 1 0-6 3 3 0 0 1 0 6" />
+            <path
+              d="M9 6h.5a2 2 0 0 1 1.983 1.738l3.11-1.382A1 1 0 0 1 16 7.269v7.462a1 1 0 0 1-1.406.913l-3.111-1.382A2 2 0 0 1 9.5 16H2a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"
+            />
+          </svg>
+          1
+        </button>
+
+        <button id="camera-position-2">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            fill="currentColor"
+            class="bi bi-camera-reels-fill"
+            viewBox="0 0 16 16"
+          >
+            <path d="M6 3a3 3 0 1 1-6 0 3 3 0 0 1 6 0" />
+            <path d="M9 6a3 3 0 1 1 0-6 3 3 0 0 1 0 6" />
+            <path
+              d="M9 6h.5a2 2 0 0 1 1.983 1.738l3.11-1.382A1 1 0 0 1 16 7.269v7.462a1 1 0 0 1-1.406.913l-3.111-1.382A2 2 0 0 1 9.5 16H2a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"
+            />
+          </svg>
+          2
+        </button>
+      </div>
+
+      <div id="follow-buttons"></div>
+    </div>
+
     <script type="module" src="/src/main/index.ts"></script>
   </body>
 </html>
