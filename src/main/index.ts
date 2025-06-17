@@ -48,6 +48,7 @@ import { Team } from "../models/Team";
 import { Driver } from "../models/Driver";
 import { Car } from "../models/Car";
 
+let globalScale = 1 / 1300;
 let globe: Globe;
 let renderer: WebGLRenderer;
 let camera: PerspectiveCamera;
@@ -65,23 +66,24 @@ const initialPositions: Vector3[] = [];
 const drivers: Driver[] = [];
 const labelOffset = new Vector3(0, 0, 30);
 
-const longitude = -46.6992; // degrees
-const latitude = -23.701; // degrees
+const longitude = -46.69670296197944; // degrees
+const latitude = -23.701353134423925; // degrees
 // Calculate the center point on the globe in ECEF coordinates
-const centerECEF = new Geodetic(radians(longitude), radians(latitude), 0).toECEF();
+const centerECEF = new Geodetic(radians(longitude), radians(latitude), 0).toECEF().multiplyScalar(globalScale);
+
 const cameraUp = centerECEF.clone().normalize();
 
 const rawLLA = [
-  [-23.703697100829874, -46.699994234674826, 2],
-  [-23.7036216179702, -46.699941677134376, 188],
-  [-23.703572683592377, -46.70002605739498, 188],
-  [-23.70348206444485, -46.69998057194944, 188],
-  [-23.703426988925894, -46.70006950216714, 188],
+  [-23.703697100829874, -46.699994234674826, 0],
+  [-23.7036216179702, -46.699941677134376, 0],
+  [-23.703572683592377, -46.70002605739498, 0],
+  [-23.70348206444485, -46.69998057194944, 0],
+  [-23.703426988925894, -46.70006950216714, 0],
 ];
 
 const cameraPositions: Vector3[] = [
-  new Vector3(4008116.5561791877, -4253458.877660439, -2548691.1126270886),
-  new Vector3(4008724.1549734552, -4253127.057619564, -2548582.1141718035),
+  new Vector3(4008116.5561791877, -4253458.877660439, -2548691.1126270886).multiplyScalar(globalScale),
+  new Vector3(4008724.1549734552, -4253127.057619564, -2548582.1141718035).multiplyScalar(globalScale),
 ];
 
 for (const [lon, lat, alt] of rawLLA) {
@@ -110,8 +112,7 @@ async function loadGPXasECEF(url: string): Promise<Vector3[]> {
     const eleElem = pt.querySelector("ele");
     const alt = eleElem ? parseFloat(eleElem.textContent || "0") : 0;
 
-    // Adiciona um pequeno offset de +2 metros para evitar sobreposição
-    const geo = new Geodetic(radians(lon), radians(lat), alt + 50);
+    const geo = new Geodetic(radians(lon), radians(lat), alt - 4);
     points.push(geo.toECEF());
   });
 
@@ -179,7 +180,7 @@ function init(): void {
   // Update projection matrix if aspect ratio changed
   // camera
   const aspect = window.innerWidth / window.innerHeight;
-  camera = new PerspectiveCamera(75, aspect, 10, 1e6);
+  camera = new PerspectiveCamera(75, aspect, 0.001, 1);
 
   camera.position.copy(cameraPositions[1]); // Use the first camera position from the array
   camera.up.copy(cameraUp);
@@ -188,7 +189,7 @@ function init(): void {
   camera.aspect = aspect;
   camera.updateProjectionMatrix();
 
-  const center = new Geodetic(radians(longitude), radians(latitude), 0).toECEF();
+  const center = new Geodetic(radians(longitude), radians(latitude), 0).toECEF().multiplyScalar(globalScale);
   const radiusMeters = 650; // metade do tamanho do quadrado
 
   // Criar vetores locais: Leste, Norte, Cima (ENU)
@@ -197,10 +198,10 @@ function init(): void {
   const north = up.clone().cross(east).normalize(); // Eixo Norte
 
   // Calcular pontos da borda do quadrado
-  const eastOffset = east.clone().multiplyScalar(radiusMeters);
-  const westOffset = east.clone().multiplyScalar(-radiusMeters);
-  const northOffset = north.clone().multiplyScalar(radiusMeters);
-  const southOffset = north.clone().multiplyScalar(-radiusMeters);
+  const eastOffset = east.clone().multiplyScalar(radiusMeters * globalScale);
+  const westOffset = east.clone().multiplyScalar(-radiusMeters * globalScale);
+  const northOffset = north.clone().multiplyScalar(radiusMeters * globalScale);
+  const southOffset = north.clone().multiplyScalar(-radiusMeters * globalScale);
 
   // Pontos dos 4 limites
   const eastPoint = center.clone().add(eastOffset);
@@ -230,27 +231,29 @@ function init(): void {
   skyMaterial = new SkyMaterial();
   const sky = new Mesh(new PlaneGeometry(2, 2), skyMaterial);
   sky.frustumCulled = false;
-  scene.add(sky);
+  // scene.add(sky);
 
   globe = new Globe(scene, camera, renderer, /* disableControls= */ true);
+  // globe.tiles.group.scale.set(0.5, 0.5, 0.5);
   scene.add(globe.tiles.group);
+  scene.scale.multiplyScalar(globalScale);
 
   // Demonstrates forward lighting here. For deferred lighting, set
   // sunIrradiance and skyIrradiance to true, remove SkyLightProbe and
   // SunDirectionalLight, and provide a normal buffer to
   // AerialPerspectiveEffect.
   aerialPerspective = new AerialPerspectiveEffect(camera, {
-    correctGeometricError: true,
-    correctAltitude: true,
-    inscatter: true,
-    photometric: true,
+    correctGeometricError: false,
+    correctAltitude: false,
+    inscatter: false,
+    photometric: false,
     skyIrradiance: false,
     sunIrradiance: false,
-    transmittance: true,
+    transmittance: false,
     irradianceScale: 2 / Math.PI,
-    sky: true,
-    sun: true,
-    moon: true,
+    sky: false,
+    sun: false,
+    moon: false,
   });
 
   clouds = new CloudsEffect(camera);
@@ -309,6 +312,15 @@ function init(): void {
     } else {
       console.warn("Nenhum ponto GPX carregado");
     }
+
+    console.log("N points:", points.length);
+    for (let i = 0; i < points.length; i++) {
+      const sphereGeometry = new SphereGeometry(2);
+      const sphereMaterial = new MeshStandardMaterial({ color: 0xff0000 });
+      const sphere = new Mesh(sphereGeometry, sphereMaterial);
+      sphere.position.copy(points[i]);
+      scene.add(sphere);
+    }
   });
 
   // Camera controls
@@ -345,7 +357,7 @@ function render(): void {
     });
 
     if (trackCurve && drivers.length > 0) {
-      trackTime += 0.00005;
+      trackTime += 0.00003;
       if (trackTime > 1) trackTime = 0;
 
       // Add null check for trackCurve
@@ -362,10 +374,10 @@ function render(): void {
     }
 
     if (currentFollowDriver && trackCurve) {
-      const pos = currentFollowDriver.car.mesh.position.clone();
+      const pos = currentFollowDriver.car.mesh.position.clone().multiplyScalar(globalScale);
       const tangent = trackCurve.getTangentAt(trackTime);
       const up = pos.clone().normalize();
-      const cameraOffset = tangent.clone().multiplyScalar(-30).add(up.clone().multiplyScalar(15));
+      const cameraOffset = tangent.clone().multiplyScalar(-30).add(up.clone().multiplyScalar(15)).multiplyScalar(globalScale);
       const cameraPos = pos.clone().add(cameraOffset);
       camera.position.copy(cameraPos);
       camera.up.copy(up);
