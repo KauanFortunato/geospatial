@@ -180,7 +180,7 @@ function init(): void {
   // Update projection matrix if aspect ratio changed
   // camera
   const aspect = window.innerWidth / window.innerHeight;
-  camera = new PerspectiveCamera(75, aspect, 0.001, 1);
+  camera = new PerspectiveCamera(75, aspect, 0.001, 100);
 
   camera.position.copy(cameraPositions[1]); // Use the first camera position from the array
   camera.up.copy(cameraUp);
