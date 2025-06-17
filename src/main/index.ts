@@ -65,23 +65,23 @@ const initialPositions: Vector3[] = [];
 const drivers: Driver[] = [];
 const labelOffset = new Vector3(0, 0, 30);
 
-const longitude = -9.394761567056307; // degrees
-const latitude = 38.75025825516866; // degrees
+const longitude = -46.6992; // degrees
+const latitude = -23.701; // degrees
 // Calculate the center point on the globe in ECEF coordinates
 const centerECEF = new Geodetic(radians(longitude), radians(latitude), 0).toECEF();
 const cameraUp = centerECEF.clone().normalize();
 
 const rawLLA = [
-  [-9.392928078775599, 38.749255151676735, 188],
-  [-9.392958428064668, 38.749343493902465, 188],
-  [-9.392858320990218, 38.74938142433314, 188],
-  [-9.392882174967271, 38.749474958015774, 188],
-  [-9.392780327138661, 38.74951615683619, 188],
+  [-23.703697100829874, -46.699994234674826, 2],
+  [-23.7036216179702, -46.699941677134376, 188],
+  [-23.703572683592377, -46.70002605739498, 188],
+  [-23.70348206444485, -46.69998057194944, 188],
+  [-23.703426988925894, -46.70006950216714, 188],
 ];
 
 const cameraPositions: Vector3[] = [
-  new Vector3(4914449.702275728, -812735.0475000107, 3970834.0878650616),
-  new Vector3(4914668.737085846, -813010.9913910049, 3971105.824077781),
+  new Vector3(4008116.5561791877, -4253458.877660439, -2548691.1126270886),
+  new Vector3(4008724.1549734552, -4253127.057619564, -2548582.1141718035),
 ];
 
 for (const [lon, lat, alt] of rawLLA) {
@@ -265,9 +265,7 @@ function init(): void {
 
   // Load precomputed textures.
   const basePath = import.meta.env.BASE_URL || "/";
-  new PrecomputedTexturesLoader()
-    .setTypeFromRenderer(renderer)
-    .load(basePath + "assets/atmosphere", onPrecomputedTexturesLoad);
+  new PrecomputedTexturesLoader().setTypeFromRenderer(renderer).load(basePath + "assets/atmosphere", onPrecomputedTexturesLoad);
 
   // --------------------------------
   //  Color Grading is not working
@@ -303,7 +301,7 @@ function init(): void {
 
   window.addEventListener("resize", onWindowResize);
 
-  const gpxUrl = new URL("./estoril-peter-auto.gpx", import.meta.url).href;
+  const gpxUrl = new URL("./Autodromo_de_Interlagos__Sao_Paulo_SP__Brasil.gpx", import.meta.url).href;
   loadGPXasECEF(gpxUrl).then((points) => {
     if (points.length > 1) {
       console.log("GPX Points loaded:", points.length);
@@ -478,10 +476,7 @@ function createDriversAndTeams() {
     scene.add(driver.label);
 
     const lineMaterial = new LineBasicMaterial({ color: 0xffffff });
-    const lineGeometry = new BufferGeometry().setFromPoints([
-      driver.car.mesh.position,
-      driver.car.mesh.position.clone(),
-    ]);
+    const lineGeometry = new BufferGeometry().setFromPoints([driver.car.mesh.position, driver.car.mesh.position.clone()]);
     driver.line = new Line(lineGeometry, lineMaterial);
     scene.add(driver.line);
   });
