@@ -30,6 +30,7 @@ body {
 
 #controls {
   width: 250px;
+  height: min-content;
   position: absolute;
   top: 10px;
   right: 10px;
@@ -42,11 +43,50 @@ body {
   margin-top: 10px;
 }
 
+#controls .header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#controls .header svg {
+  background-color: transparent;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 16px;
+  user-select: none;
+  transition: transform 0.2s;
+}
+
 #controls .header h1 {
   font-size: 16px;
-  margin: 0 0 10px 0;
+  margin: 0 0 0 0;
   padding-left: 4px;
   border-left: 4px solid #e10600; /* F1 Red accent */
+}
+
+.camera-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  transform-origin: top;
+  transition: transform 0.2s, height 0.2s;
+}
+
+#controls #show-controls {
+  display: none;
+}
+
+#controls #show-controls:checked ~ .camera-controls {
+  transform-origin: top;
+  transform: scaleY(0);
+  height: 0px;
+}
+
+#controls #show-controls:checked ~ .header svg {
+  transform: rotate(-180deg);
 }
 
 .default-positions,
@@ -125,9 +165,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background-color: #222;
-  padding: 4px 6px;
+  background-color: #161616;
+  padding: 10px 6px;
   border-left: 5px solid transparent;
+  border-radius: 5px;
 }
 
 .driver-row p {

@@ -350,7 +350,7 @@ function init(): void {
     console.log("N points:", points.length);
     for (let i = 0; i < points.length; i++) {
       const sphereGeometry = new SphereGeometry(2);
-      const sphereMaterial = new MeshStandardMaterial({ color: 0xff0000 });
+      const sphereMaterial = new MeshStandardMaterial({ color: 0x00ff62 });
       const sphere = new Mesh(sphereGeometry, sphereMaterial);
       sphere.position.copy(points[i]);
       scene.add(sphere);
@@ -391,11 +391,11 @@ function render(): void {
     });
 
     if (trackCurve && drivers.length > 0) {
-      trackTime += 0.00003;
+      trackTime += 0.0003;
       if (trackTime > 1) trackTime = 0;
 
       // Add null check for trackCurve
-      const spacing = 0.005;
+      const spacing = 0.05;
 
       drivers.forEach((driver, index) => {
         const t = (trackTime - index * spacing + 1) % 1;
@@ -420,11 +420,6 @@ function render(): void {
       camera.position.copy(cameraPos);
       camera.up.copy(up);
       camera.lookAt(pos.clone().add(tangent.clone().multiplyScalar(10)));
-    } else {
-      for (const driver of drivers) {
-        driver.showLabel();
-        driver.showLine();
-      }
     }
 
     composer.render();
@@ -522,13 +517,13 @@ function createDriversAndTeams() {
   kimi.position = 4;
 
   // Set initial positions for the drivers
-  verstappen.positionOnTrack(initialPositions[0]);
+  verstappen.positionOnTrack(initialPositions[1]);
   kimi.positionOnTrack(initialPositions[1]);
   oscar.positionOnTrack(initialPositions[2]);
-  hamilton.positionOnTrack(initialPositions[3]);
+  hamilton.positionOnTrack(initialPositions[0]);
 
   // Add drivers to the scene
-  drivers.push(verstappen, oscar, hamilton, kimi);
+  drivers.push(hamilton, oscar, verstappen, kimi);
 
   drivers.forEach((driver) => {
     driver.label = createDriverLabel(driver.acronym.toUpperCase(), driver.car.team.color);
@@ -562,11 +557,12 @@ function renderScoreboard(drivers: Driver[]): void {
     row.style.borderLeftColor = driver.car.team.color;
 
     row.innerHTML = `
-      <p class="position">${driver.position}</p>
+      <p class="position">${driver.driverNumber}</p>
       <p class="acronym">-${driver.acronym.toLocaleUpperCase()}</p>
       <p class="interval">${driver.interval}</p>
       <div class="tire" style="background-color: ${driver.car.team.color};"></div>
     `;
+    console.log("Driver:", driver.name, "Position:", driver.position, "Color:", driver.car.team.color);
 
     body.appendChild(row);
   });
