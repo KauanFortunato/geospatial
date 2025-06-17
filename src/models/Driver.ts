@@ -42,6 +42,30 @@ export class Driver {
     }
   }
 
+  hideLabel() {
+    if (this.label) {
+      this.label.visible = false;
+    }
+  }
+
+  showLabel() {
+    if (this.label) {
+      this.label.visible = true;
+    }
+  }
+
+  hideLine() {
+    if (this.line) {
+      this.line.visible = false;
+    }
+  }
+
+  showLine() {
+    if (this.line) {
+      this.line.visible = true;
+    }
+  }
+
   positionOnTrack(posicao: Vector3) {
     this.car.setPosition(posicao);
   }
