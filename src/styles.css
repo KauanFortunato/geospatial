@@ -71,6 +71,8 @@ body {
   flex-direction: column;
   gap: 6px;
   margin-top: 10px;
+  height: 0px;
+  transform: scaleY(0);
   transform-origin: top;
   transition: transform 0.2s, height 0.2s;
 }
@@ -81,8 +83,8 @@ body {
 
 #controls #show-controls:checked ~ .camera-controls {
   transform-origin: top;
-  transform: scaleY(0);
-  height: 0px;
+  transform: scaleY(1);
+  height: min-content;
 }
 
 #controls #show-controls:checked ~ .header svg {

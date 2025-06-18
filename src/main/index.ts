@@ -1,17 +1,6 @@
 import "../styles.css"; // Import the CSS file
 
 import {
-  EffectMaterial,
-  EffectComposer,
-  EffectPass,
-  NormalPass,
-  RenderPass,
-  ToneMappingEffect,
-  ToneMappingMode,
-  SMAAEffect,
-  LUT3DEffect,
-} from "postprocessing";
-import {
   HalfFloatType,
   NoToneMapping,
   Mesh,
@@ -36,30 +25,21 @@ import {
   Line,
   LineBasicMaterial,
   BufferGeometry,
+  InstancedMesh,
+  Color,
   MeshStandardMaterial,
 } from "three";
 import { Globe } from "../globe";
-import { AerialPerspectiveEffect, PrecomputedTexturesLoader, SkyMaterial } from "@takram/three-atmosphere";
-import { DitheringEffect, LensFlareEffect, createHaldLookupTexture } from "@takram/three-geospatial-effects";
-import { getMoonDirectionECI, getSunDirectionECI, getECIToECEFRotationMatrix } from "../utils/celestialDirections";
 import { Geodetic, PointOfView, radians } from "@takram/three-geospatial";
-import { CloudsEffect } from "@takram/three-clouds";
 import { Team } from "../models/Team";
 import { Driver } from "../models/Driver";
 import { Car } from "../models/Car";
-import { vertexColor } from "three/tsl";
 
 let globalScale = 1;
 let globe: Globe;
 let renderer: WebGLRenderer;
 let camera: PerspectiveCamera;
 let scene: Scene;
-let skyMaterial: SkyMaterial;
-let aerialPerspective: AerialPerspectiveEffect;
-let composer: EffectComposer;
-let lutTexture: Texture;
-let lutEffect: LUT3DEffect;
-let clouds: CloudsEffect;
 let trackCurve: CatmullRomCurve3 | null = null;
 let trackTime = 0;
 let currentFollowDriver: Driver | null = null;
@@ -119,10 +99,6 @@ for (const [lon, lat, alt] of rawLLA) {
   initialPositions.push(geo.toECEF());
 }
 
-const sunDirection = new Vector3();
-const moonDirection = new Vector3();
-const rotationMatrix = new Matrix4();
-
 async function loadGPXasECEF(url: string): Promise<Vector3[]> {
   const res = await fetch(url);
   const text = await res.text();
@@ -148,21 +124,20 @@ async function loadGPXasECEF(url: string): Promise<Vector3[]> {
   return points;
 }
 
-// Tokyo time 9:00AM
-const referenceDate = new Date("2024-01-01T22:00:00+09:00");
-
 function init(): void {
   // scene
   scene = new Scene();
+  scene.background = new Color(0xffffff);
 
   // renderer
   renderer = new WebGLRenderer({
     powerPreference: "high-performance",
-    antialias: true,
+    antialias: false,
     stencil: true,
     depth: true,
     logarithmicDepthBuffer: true,
   });
+
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = NoToneMapping;
@@ -176,7 +151,7 @@ function init(): void {
   }
 
   // Ligh
-  const ambientLight = new AmbientLight(0xffffff, 0.5);
+  const ambientLight = new AmbientLight(0xffffff, 1);
   scene.add(ambientLight);
 
   // Create drivers and teams
@@ -221,123 +196,16 @@ function init(): void {
   camera.aspect = aspect;
   camera.updateProjectionMatrix();
 
-  const center = new Geodetic(radians(longitude), radians(latitude), 0).toECEF().multiplyScalar(globalScale);
-  const radiusMeters = 650; // metade do tamanho do quadrado
-
-  // Criar vetores locais: Leste, Norte, Cima (ENU)
-  const up = center.clone().normalize(); // direção radial (Z)
-  const east = new Vector3(0, 0, 1).cross(up).normalize(); // Eixo Leste
-  const north = up.clone().cross(east).normalize(); // Eixo Norte
-
-  // Calcular pontos da borda do quadrado
-  const eastOffset = east.clone().multiplyScalar(radiusMeters * globalScale);
-  const westOffset = east.clone().multiplyScalar(-radiusMeters * globalScale);
-  const northOffset = north.clone().multiplyScalar(radiusMeters * globalScale);
-  const southOffset = north.clone().multiplyScalar(-radiusMeters * globalScale);
-
-  // Pontos dos 4 limites
-  const eastPoint = center.clone().add(eastOffset);
-  const westPoint = center.clone().add(westOffset);
-  const northPoint = center.clone().add(northOffset);
-  const southPoint = center.clone().add(southOffset);
-
-  // Normais dos planos (apontam para dentro do quadrado)
-  const eastNormal = east.clone().negate();
-  const westNormal = east.clone();
-  const northNormal = north.clone().negate();
-  const southNormal = north.clone();
-
-  // Criar os planos com base nas normais e pontos
-  const clippingPlanes = [
-    new Plane(eastNormal, -eastNormal.dot(eastPoint)),
-    new Plane(westNormal, -westNormal.dot(westPoint)),
-    new Plane(northNormal, -northNormal.dot(northPoint)),
-    new Plane(southNormal, -southNormal.dot(southPoint)),
-  ];
-
-  // Ativar no renderer
-  renderer.clippingPlanes = clippingPlanes;
-  renderer.localClippingEnabled = true;
-
-  // Create the sky
-  skyMaterial = new SkyMaterial();
-  const sky = new Mesh(new PlaneGeometry(2, 2), skyMaterial);
-  sky.frustumCulled = false;
-  // scene.add(sky);
+  clippingGlobe();
 
   globe = new Globe(scene, camera, renderer, /* disableControls= */ true);
-  // globe.tiles.group.scale.set(0.5, 0.5, 0.5);
+  // globe.tiles.group.scale.multiplyScalar(globalScale);
   scene.add(globe.tiles.group);
   scene.scale.multiplyScalar(globalScale);
 
-  // Demonstrates forward lighting here. For deferred lighting, set
-  // sunIrradiance and skyIrradiance to true, remove SkyLightProbe and
-  // SunDirectionalLight, and provide a normal buffer to
-  // AerialPerspectiveEffect.
-  aerialPerspective = new AerialPerspectiveEffect(camera, {
-    correctGeometricError: false,
-    correctAltitude: false,
-    inscatter: false,
-    photometric: false,
-    skyIrradiance: false,
-    sunIrradiance: false,
-    transmittance: false,
-    irradianceScale: 2 / Math.PI,
-    sky: false,
-    sun: false,
-    moon: false,
-  });
+  window.addEventListener("resize", onWindowResize); // Handle window resize events
 
-  clouds = new CloudsEffect(camera);
-  clouds.coverage = 0.3;
-  clouds.localWeatherVelocity.set(0.001, 0);
-  clouds.shadow.farScale = 0.25;
-  clouds.shadow.maxFar = 1e5;
-  clouds.shadow.cascadeCount = 2;
-  clouds.shadow.mapSize.set(512, 512);
-  clouds.shadow.splitMode = "practical";
-  clouds.shadow.splitLambda = 0.71;
-
-  // Load precomputed textures.
-  const basePath = import.meta.env.BASE_URL || "/";
-  new PrecomputedTexturesLoader()
-    .setTypeFromRenderer(renderer)
-    .load(basePath + "assets/atmosphere", onPrecomputedTexturesLoad);
-
-  // --------------------------------
-  //  Color Grading is not working
-  // --------------------------------
-  // Load the LUT texture for color grading
-  const textureLoader = new TextureLoader();
-  // You can change the LUT file path to any of your available LUTs
-  const lutPath = basePath + "assets/clut/Fuji/Fuji 160C 1 -.png";
-  textureLoader.load(lutPath, (texture) => {
-    lutTexture = createHaldLookupTexture(texture);
-    lutEffect = new LUT3DEffect(lutTexture);
-    if (composer) {
-      // composer.addPass(new EffectPass(camera, lutEffect));
-    }
-  });
-
-  // Use floating-point render buffer, as radiance/luminance is stored here.
-  composer = new EffectComposer(renderer, {
-    frameBufferType: HalfFloatType,
-    multisampling: 8,
-  });
-
-  const normalPass = new NormalPass(scene, camera);
-  aerialPerspective.normalBuffer = normalPass.texture;
-
-  composer.addPass(new RenderPass(scene, camera));
-  composer.addPass(normalPass);
-  composer.addPass(new EffectPass(camera, aerialPerspective));
-  composer.addPass(new EffectPass(camera, new LensFlareEffect()));
-  composer.addPass(new EffectPass(camera, new ToneMappingEffect({ mode: ToneMappingMode.AGX })));
-  composer.addPass(new EffectPass(camera, new SMAAEffect()));
-  composer.addPass(new EffectPass(camera, new DitheringEffect()));
-
-  window.addEventListener("resize", onWindowResize);
-
+  // Load GPX data
   const gpxUrl = new URL("./estoril-peter-auto.gpx", import.meta.url).href;
   loadGPXasECEF(gpxUrl).then((points) => {
     if (points.length > 1) {
@@ -348,13 +216,13 @@ function init(): void {
     }
 
     console.log("N points:", points.length);
+    const geometry = new SphereGeometry(2);
+    const material = new MeshStandardMaterial({ color: 0x00ff62 });
+    const sphere = new InstancedMesh(geometry, material, points.length);
     for (let i = 0; i < points.length; i++) {
-      const sphereGeometry = new SphereGeometry(2);
-      const sphereMaterial = new MeshStandardMaterial({ color: 0x00ff62 });
-      const sphere = new Mesh(sphereGeometry, sphereMaterial);
-      sphere.position.copy(points[i]);
-      scene.add(sphere);
+      sphere.setMatrixAt(i, new Matrix4().setPosition(points[i]));
     }
+    // scene.add(sphere);
   });
 
   // Camera controls
@@ -365,31 +233,16 @@ function init(): void {
   document.getElementById("camera-position-2")?.addEventListener("click", () => {
     animateCameraTo(cameraPositions[1], cameraUp, centerECEF, 1500);
   });
+
+  renderer.setAnimationLoop(render);
 }
 
 function render(): void {
-  const date = referenceDate;
-  getECIToECEFRotationMatrix(date, rotationMatrix);
-  getSunDirectionECI(date, sunDirection).applyMatrix4(rotationMatrix);
-  getMoonDirectionECI(date, moonDirection).applyMatrix4(rotationMatrix);
-
-  skyMaterial.sunDirection.copy(sunDirection);
-  skyMaterial.moonDirection.copy(moonDirection);
-
-  aerialPerspective.sunDirection.copy(sunDirection);
-  aerialPerspective.moonDirection.copy(moonDirection);
-
   globe.update();
   // console.log("Camera position:", camera.position.toArray());
 
   // Update effect materials with current camera settings
-  if (composer) {
-    composer.passes.forEach((pass) => {
-      if (pass.fullscreenMaterial instanceof EffectMaterial) {
-        pass.fullscreenMaterial.adoptCameraSettings(camera);
-      }
-    });
-
+  if (renderer) {
     if (trackCurve && drivers.length > 0) {
       trackTime += 0.0003;
       if (trackTime > 1) trackTime = 0;
@@ -422,22 +275,53 @@ function render(): void {
       camera.lookAt(pos.clone().add(tangent.clone().multiplyScalar(10)));
     }
 
-    composer.render();
+    // composer.render();
+    renderer.render(scene, camera);
   }
 }
 
-function onPrecomputedTexturesLoad(textures: any): void {
-  Object.assign(skyMaterial, textures);
-  Object.assign(aerialPerspective, textures);
-  Object.assign(clouds, textures);
+function clippingGlobe() {
+  // Clipping planes
+  // Create a square around the center point
+  // The square is defined by its center, radius, and orientation in ECEF coordinates
+  // The square is aligned with the local East-North-Up coordinate system
+  const center = new Geodetic(radians(longitude), radians(latitude), 0).toECEF().multiplyScalar(globalScale);
+  const radiusMeters = 650; // metade do tamanho do quadrado
 
-  renderer.setAnimationLoop(render);
-}
+  // Create local vectors: East, North, Up
+  const up = center.clone().normalize(); // direção radial (Z)
+  const east = new Vector3(0, 0, 1).cross(up).normalize(); // Eixo Leste
+  const north = up.clone().cross(east).normalize(); // Eixo Norte
 
-function onWindowResize(): void {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  // Calculate square edge points
+  const eastOffset = east.clone().multiplyScalar(radiusMeters * globalScale);
+  const westOffset = east.clone().multiplyScalar(-radiusMeters * globalScale);
+  const northOffset = north.clone().multiplyScalar(radiusMeters * globalScale);
+  const southOffset = north.clone().multiplyScalar(-radiusMeters * globalScale);
+
+  // Points of the 4 limits
+  const eastPoint = center.clone().add(eastOffset);
+  const westPoint = center.clone().add(westOffset);
+  const northPoint = center.clone().add(northOffset);
+  const southPoint = center.clone().add(southOffset);
+
+  // Plane normals (point inside the square)
+  const eastNormal = east.clone().negate();
+  const westNormal = east.clone();
+  const northNormal = north.clone().negate();
+  const southNormal = north.clone();
+
+  // Create planes based on normals and points
+  const clippingPlanes = [
+    new Plane(eastNormal, -eastNormal.dot(eastPoint)),
+    new Plane(westNormal, -westNormal.dot(westPoint)),
+    new Plane(northNormal, -northNormal.dot(northPoint)),
+    new Plane(southNormal, -southNormal.dot(southPoint)),
+  ];
+
+  // Activate clipping planes in the renderer
+  renderer.clippingPlanes = clippingPlanes;
+  renderer.localClippingEnabled = true;
 }
 
 function createDriverLabel(text: string, color: string): Sprite {
@@ -566,6 +450,12 @@ function renderScoreboard(drivers: Driver[]): void {
 
     body.appendChild(row);
   });
+}
+
+function onWindowResize(): void {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
 window.addEventListener("load", init);
