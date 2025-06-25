@@ -50,45 +50,42 @@ let trackCurve: CatmullRomCurve3 | null = null;
 let trackTime = 0;
 let currentFollowDriver: Driver | null = null;
 let arPlacingGeomap = false;
-let reticle: Mesh | null = null; 
+let reticle: Mesh | null = null;
 let hitTestSourceRequested = false;
 let hitTestSource: XRHitTestSource | null = null;
 const initialPositions: Vector3[] = [];
 const drivers: Driver[] = [];
 const labelOffset = new Vector3(0, 0, 30);
 
-const params = new URLSearchParams(window.location.search);
-const scaleParam = params.get("scale");
-
 const buttonScale = document.getElementById("scale-scene");
 if (buttonScale) {
   buttonScale.addEventListener("click", () => {
-    const url = new URL(window.location.href);
-    if (scaleParam === "small") {
-      url.searchParams.delete("scale");
+    const newScale = globalScale === 1 ? 1 / 1300 : 1;
+    applyScale(newScale);
+    if (newScale === 1) {
+      buttonScale.textContent = "Reduzir escala da cena";
+      localStorage.setItem("scale", "false");
     } else {
-      url.searchParams.set("scale", "small");
+      buttonScale.textContent = "Aumentar escala da cena";
+      localStorage.setItem("scale", "true");
     }
-    window.location.href = url.toString();
   });
 }
 
-if (scaleParam === "small") {
-  globalScale = 1 / 1300;
-  if (buttonScale) {
-    buttonScale.textContent = "Aumentar escala da cena";
-  }
+const localScale = localStorage.getItem("scale");
+if (localScale == null) {
+  localStorage.setItem("scale", "false");
 } else {
-  globalScale = 1;
-  if (buttonScale) {
-    buttonScale.textContent = "Reduzir escala da cena";
-  }
+  globalScale = localScale === "false" ? 1 : 1 / 1300;
+}
+if (buttonScale) {
+  buttonScale.textContent = localScale === "false" ? "Reduzir escala da cena" : "Aumentar escala da cena";
 }
 
 const longitude = -9.394761567056307; // degrees
 const latitude = 38.75025825516866; // degrees
 // Calculate the center point on the globe in ECEF coordinates
-const centerECEF = new Geodetic(radians(longitude), radians(latitude), 0).toECEF().multiplyScalar(globalScale);
+const centerECEF = new Geodetic(radians(longitude), radians(latitude), 0).toECEF();
 const cameraUp = centerECEF.clone().normalize();
 
 const rawLLA = [
@@ -99,10 +96,7 @@ const rawLLA = [
   [-9.392780327138661, 38.74951615683619, 188],
 ];
 
-const cameraPositions: Vector3[] = [
-  new Vector3(4914449.702275728, -812735.0475000107, 3970834.0878650616).multiplyScalar(globalScale),
-  new Vector3(4914668.737085846, -813010.9913910049, 3971105.824077781).multiplyScalar(globalScale),
-];
+const cameraPositions: Vector3[] = [new Vector3(4914449.702275728, -812735.0475000107, 3970834.0878650616), new Vector3(4914668.737085846, -813010.9913910049, 3971105.824077781)];
 
 for (const [lon, lat, alt] of rawLLA) {
   const geo = new Geodetic(radians(lon), radians(lat), alt);
@@ -153,9 +147,9 @@ function init(): void {
   renderer.shadowMap.type = PCFSoftShadowMap;
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
-    
+
   renderer.xr.enabled = true;
-  renderer.xr.addEventListener('sessionend', onSessionEnd);
+  renderer.xr.addEventListener("sessionend", onSessionEnd);
 
   const container = document.getElementById("container");
   if (container) {
@@ -175,22 +169,13 @@ function init(): void {
   const aspect = window.innerWidth / window.innerHeight;
   camera = new PerspectiveCamera(75, aspect, 0.001, 1300 * globalScale);
 
-  camera.position.copy(cameraPositions[1]); // Use the first camera position from the array
-  camera.up.copy(cameraUp);
-  camera.lookAt(centerECEF);
-
-  camera.aspect = aspect;
-  camera.updateProjectionMatrix();
-
-  clippingGlobe();
+  // clippingGlobe();
 
   globe = new Globe(scene, camera, renderer, /* disableControls= */ true);
-  globe.tiles.group.scale.multiplyScalar(globalScale);
+  applyScale(globalScale);
   createDriversAndTeams();
 
   scene.add(globe.tiles.group);
-
-  // scene.scale.multiplyScalar(globalScale);
 
   // Create drivers and teams
   const followContainer = document.getElementById("follow-buttons");
@@ -250,31 +235,31 @@ function init(): void {
 
   setupXR();
   addCube();
-  
+
   renderer.setAnimationLoop(render);
 }
 
 function render(ts, frame): void {
   globe.update();
   // console.log("Camera position:", camera.position.toArray());
-    if (frame) {
-        const referenceSpace = renderer.xr.getReferenceSpace();
-        const session = renderer.xr.getSession();
+  if (frame) {
+    const referenceSpace = renderer.xr.getReferenceSpace();
+    const session = renderer.xr.getSession();
 
-        if (reticle && session?.enabledFeatures?.includes('hit-test')) {
-            if (hitTestSource) {
-                const hitTestResults = frame.getHitTestResults(hitTestSource);
-                if (hitTestResults.length && arPlacingGeomap) {
-                    const hit = hitTestResults[0];
-                    reticle.visible = true;
-                    // @ts-ignore
-                    reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
-                } else {
-                    reticle.visible = false;
-                }
-            }
+    if (reticle && session?.enabledFeatures?.includes("hit-test")) {
+      if (hitTestSource) {
+        const hitTestResults = frame.getHitTestResults(hitTestSource);
+        if (hitTestResults.length && arPlacingGeomap) {
+          const hit = hitTestResults[0];
+          reticle.visible = true;
+          // @ts-ignore
+          reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+        } else {
+          reticle.visible = false;
         }
+      }
     }
+  }
   // Update effect materials with current camera settings
   if (renderer) {
     if (trackCurve && drivers.length > 0) {
@@ -320,50 +305,6 @@ function render(ts, frame): void {
     // composer.render();
     renderer.render(scene, camera);
   }
-}
-
-function clippingGlobe() {
-  // Clipping planes
-  // Create a square around the center point
-  // The square is defined by its center, radius, and orientation in ECEF coordinates
-  // The square is aligned with the local East-North-Up coordinate system
-  const center = new Geodetic(radians(longitude), radians(latitude), 0).toECEF().multiplyScalar(globalScale);
-  const radiusMeters = 650; // metade do tamanho do quadrado
-
-  // Create local vectors: East, North, Up
-  const up = center.clone().normalize(); // direção radial (Z)
-  const east = new Vector3(0, 0, 1).cross(up).normalize(); // Eixo Leste
-  const north = up.clone().cross(east).normalize(); // Eixo Norte
-
-  // Calculate square edge points
-  const eastOffset = east.clone().multiplyScalar(radiusMeters * globalScale);
-  const westOffset = east.clone().multiplyScalar(-radiusMeters * globalScale);
-  const northOffset = north.clone().multiplyScalar(radiusMeters * globalScale);
-  const southOffset = north.clone().multiplyScalar(-radiusMeters * globalScale);
-
-  // Points of the 4 limits
-  const eastPoint = center.clone().add(eastOffset);
-  const westPoint = center.clone().add(westOffset);
-  const northPoint = center.clone().add(northOffset);
-  const southPoint = center.clone().add(southOffset);
-
-  // Plane normals (point inside the square)
-  const eastNormal = east.clone().negate();
-  const westNormal = east.clone();
-  const northNormal = north.clone().negate();
-  const southNormal = north.clone();
-
-  // Create planes based on normals and points
-  const clippingPlanes = [
-    new Plane(eastNormal, -eastNormal.dot(eastPoint)),
-    new Plane(westNormal, -westNormal.dot(westPoint)),
-    new Plane(northNormal, -northNormal.dot(northPoint)),
-    new Plane(southNormal, -southNormal.dot(southPoint)),
-  ];
-
-  // Activate clipping planes in the renderer
-  renderer.clippingPlanes = clippingPlanes;
-  renderer.localClippingEnabled = true;
 }
 
 function createDriverLabel(text: string, color: string): Sprite {
@@ -501,121 +442,151 @@ function onWindowResize(): void {
 }
 
 function onXRSession() {
-    // if (!renderer.xr.isPresenting){
-    //     arPlacingGeomap = true;
-    //     globe.tiles.group.visible = false;
-
-    //     globe.tiles.group.scale.multiplyScalar(1/1300);
-    //     const up = centerECEF.clone().normalize(); // direção radial (Z)
-    //     const east = new Vector3(0, 0, 1).cross(up).normalize(); // Eixo Leste
-    //     const north = up.clone().cross(east).normalize(); // Eixo Norte
-
-    //     const eastOffset = east.clone().multiplyScalar(650 * globalScale);
-    //     const westOffset = east.clone().multiplyScalar(-650 * globalScale);
-    //     const northOffset = north.clone().multiplyScalar(650 * globalScale);
-    //     const southOffset = north.clone().multiplyScalar(-650 * globalScale);
-
-    //     // Pontos dos 4 limites
-    //     const eastPoint = centerECEF.clone().add(eastOffset);
-    //     const westPoint = centerECEF.clone().add(westOffset);
-    //     const northPoint = centerECEF.clone().add(northOffset);
-    //     const southPoint = centerECEF.clone().add(southOffset);
-
-    //     // Normais dos planos (apontam para dentro do quadrado)
-    //     const eastNormal = east.clone().negate();
-    //     const westNormal = east.clone();
-    //     const northNormal = north.clone().negate();
-    //     const southNormal = north.clone();
-
-    //     // Criar os planos com base nas normais e pontos
-    //     const clippingPlanes = [
-    //         new Plane(eastNormal, -eastNormal.dot(eastPoint)),
-    //         new Plane(westNormal, -westNormal.dot(westPoint)),
-    //         new Plane(northNormal, -northNormal.dot(northPoint)),
-    //         new Plane(southNormal, -southNormal.dot(southPoint)),
-    //     ];
-
-    //     // Ativar no renderer
-    //     renderer.clippingPlanes = clippingPlanes;
-    // }
+  // if (!renderer.xr.isPresenting){
+  //     arPlacingGeomap = true;
+  //     globe.tiles.group.visible = false;
+  //     globe.tiles.group.scale.multiplyScalar(1/1300);
+  //     const up = centerECEF.clone().normalize(); // direção radial (Z)
+  //     const east = new Vector3(0, 0, 1).cross(up).normalize(); // Eixo Leste
+  //     const north = up.clone().cross(east).normalize(); // Eixo Norte
+  //     const eastOffset = east.clone().multiplyScalar(650 * globalScale);
+  //     const westOffset = east.clone().multiplyScalar(-650 * globalScale);
+  //     const northOffset = north.clone().multiplyScalar(650 * globalScale);
+  //     const southOffset = north.clone().multiplyScalar(-650 * globalScale);
+  //     // Pontos dos 4 limites
+  //     const eastPoint = centerECEF.clone().add(eastOffset);
+  //     const westPoint = centerECEF.clone().add(westOffset);
+  //     const northPoint = centerECEF.clone().add(northOffset);
+  //     const southPoint = centerECEF.clone().add(southOffset);
+  //     // Normais dos planos (apontam para dentro do quadrado)
+  //     const eastNormal = east.clone().negate();
+  //     const westNormal = east.clone();
+  //     const northNormal = north.clone().negate();
+  //     const southNormal = north.clone();
+  //     // Criar os planos com base nas normais e pontos
+  //     const clippingPlanes = [
+  //         new Plane(eastNormal, -eastNormal.dot(eastPoint)),
+  //         new Plane(westNormal, -westNormal.dot(westPoint)),
+  //         new Plane(northNormal, -northNormal.dot(northPoint)),
+  //         new Plane(southNormal, -southNormal.dot(southPoint)),
+  //     ];
+  //     // Ativar no renderer
+  //     renderer.clippingPlanes = clippingPlanes;
+  // }
 }
 
 function onSessionEnd() {
-    arPlacingGeomap = false;
-    globe.tiles.group.visible = true;
-    hitTestSourceRequested = false;
+  arPlacingGeomap = false;
+  globe.tiles.group.visible = true;
+  hitTestSourceRequested = false;
 }
 
 function onSelect(event) {
-    if (reticle && reticle.visible) {
-        let geoMap:Mesh = globe.tiles.group;
-        reticle.matrix.decompose(geoMap.position, geoMap.quaternion, geoMap.scale);
-        geoMap.scale.multiplyScalar(1/1300);
-        // geoMap.position.sub(centerECEF.multiplyScalar(1/1300));
-        arPlacingGeomap = false;
-        geoMap.visible = true;
-    }
+  if (reticle && reticle.visible) {
+    let geoMap: Mesh = globe.tiles.group;
+    reticle.matrix.decompose(geoMap.position, geoMap.quaternion, geoMap.scale);
+    geoMap.scale.multiplyScalar(1 / 1300);
+    // geoMap.position.sub(centerECEF.multiplyScalar(1/1300));
+    arPlacingGeomap = false;
+    geoMap.visible = true;
+  }
 }
 
 function setupXR() {
-    let xrButton = XRButton.createButton(renderer, {
-        requiredFeatures: ['hit-test'],
-        optionalFeatures: []
-    });
+  let xrButton = XRButton.createButton(renderer, {
+    requiredFeatures: ["hit-test"],
+    optionalFeatures: [],
+  });
 
-    xrButton.addEventListener('click', onXRSession);
-    document.body.appendChild(xrButton);
+  xrButton.addEventListener("click", onXRSession);
+  document.body.appendChild(xrButton);
 
-    const tLoader = new TextureLoader();
-    reticle = new Mesh(
-        new BoxGeometry(9.15 / 10, 6.10 / 10, 0.01).rotateX(-Math.PI/2),
-        new MeshBasicMaterial({ map: tLoader.load('assets/reticle.png'), transparent: true })
-    );
-    reticle.matrixAutoUpdate = false;
-    reticle.visible = false;
-    scene.add(reticle);
+  const tLoader = new TextureLoader();
+  reticle = new Mesh(new BoxGeometry(9.15 / 10, 6.1 / 10, 0.01).rotateX(-Math.PI / 2), new MeshBasicMaterial({ map: tLoader.load("assets/reticle.png"), transparent: true }));
+  reticle.matrixAutoUpdate = false;
+  reticle.visible = false;
+  scene.add(reticle);
 
-    renderer.xr.addEventListener('sessionstart', async () => {
-        const session = renderer.xr.getSession();
-        if (session && session.enabledFeatures){
-            console.log("Granted WebXR Features:", Array.from(session.enabledFeatures));
+  renderer.xr.addEventListener("sessionstart", async () => {
+    const session = renderer.xr.getSession();
+    if (session && session.enabledFeatures) {
+      console.log("Granted WebXR Features:", Array.from(session.enabledFeatures));
 
-            if (session.enabledFeatures.includes('hit-test')) {
-                if (hitTestSourceRequested === false) {
-                    session.requestReferenceSpace('viewer').then(function (referenceSpace) {
-                        // @ts-ignore
-                        session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
-                            hitTestSource = source;
-                        });
-                    });
+      if (session.enabledFeatures.includes("hit-test")) {
+        if (hitTestSourceRequested === false) {
+          session.requestReferenceSpace("viewer").then(function (referenceSpace) {
+            // @ts-ignore
+            session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
+              hitTestSource = source;
+            });
+          });
 
-                    session.addEventListener('end', function () {
-                        hitTestSource = null;
-                        hitTestSourceRequested = false;
-                    });
-                    hitTestSourceRequested = true;
-                }
-            }
-            session.addEventListener('select', onSelect);
+          session.addEventListener("end", function () {
+            hitTestSource = null;
+            hitTestSourceRequested = false;
+          });
+          hitTestSourceRequested = true;
         }
-    });
+      }
+      session.addEventListener("select", onSelect);
+    }
+  });
 }
 
 let cube;
 function addCube() {
-    const geometry = new BoxGeometry(0.15, 0.15, 0.15);
-    const material = new MeshNormalMaterial({
-        // color: 0xffffff,
-        transparent: true,
-        // shadowSide: THREE.FrontSide,
-        opacity: 0.5,
-        side: DoubleSide,
-    });
-    cube = new Mesh(geometry, material);
-    cube.castShadow = true;
-    cube.receiveShadow = true;
-    cube.position.set(0,0,0);
-    scene.add(cube);
+  const geometry = new BoxGeometry(0.15, 0.15, 0.15);
+  const material = new MeshNormalMaterial({
+    // color: 0xffffff,
+    transparent: true,
+    // shadowSide: THREE.FrontSide,
+    opacity: 0.5,
+    side: DoubleSide,
+  });
+  cube = new Mesh(geometry, material);
+  cube.castShadow = true;
+  cube.receiveShadow = true;
+  cube.position.set(0, 0, 0);
+  scene.add(cube);
+}
+
+function updateClippingPlanes(center: Vector3) {
+  const radiusMeters = 650;
+  const up = center.clone().normalize();
+  const east = new Vector3(0, 0, 1).cross(up).normalize();
+  const north = up.clone().cross(east).normalize();
+
+  const eastOffset = east.clone().multiplyScalar(radiusMeters * globalScale);
+  const westOffset = east.clone().multiplyScalar(-radiusMeters * globalScale);
+  const northOffset = north.clone().multiplyScalar(radiusMeters * globalScale);
+  const southOffset = north.clone().multiplyScalar(-radiusMeters * globalScale);
+
+  const clippingPlanes = [
+    new Plane(east.clone().negate(), -east.clone().negate().dot(center.clone().add(eastOffset))),
+    new Plane(east, -east.dot(center.clone().add(westOffset))),
+    new Plane(north.clone().negate(), -north.clone().negate().dot(center.clone().add(northOffset))),
+    new Plane(north, -north.dot(center.clone().add(southOffset))),
+  ];
+
+  renderer.clippingPlanes = clippingPlanes;
+}
+
+function applyScale(scale: number) {
+  globalScale = scale;
+
+  globe.tiles.group.scale.set(scale, scale, scale);
+
+  const newCenterECEF = new Geodetic(radians(longitude), radians(latitude), 0).toECEF().multiplyScalar(globalScale);
+  const newCameraUp = newCenterECEF.clone().normalize();
+
+  cameraUp.copy(newCameraUp);
+
+  updateClippingPlanes(newCenterECEF);
+
+  camera.position.copy(cameraPositions[1].clone().multiplyScalar(scale));
+  camera.up.copy(newCameraUp);
+  camera.lookAt(newCenterECEF);
+  camera.updateProjectionMatrix();
 }
 
 window.addEventListener("load", init);
