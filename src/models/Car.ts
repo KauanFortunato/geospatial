@@ -20,5 +20,6 @@ export class Car {
 
   setPosition(posicao: Vector3) {
     this.mesh.position.copy(posicao);
+    this.mesh.updateMatrixWorld();
   }
 }

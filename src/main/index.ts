@@ -14,6 +14,7 @@ import {
   TextureLoader,
   Plane,
   Texture,
+  BoxHelper,
   AmbientLight,
   BoxGeometry,
   SphereGeometry,
@@ -28,6 +29,8 @@ import {
   InstancedMesh,
   Color,
   MeshStandardMaterial,
+  MeshBasicMaterial,
+  DoubleSide,
 } from "three";
 import { Globe } from "../globe";
 import { Geodetic, PointOfView, radians } from "@takram/three-geospatial";
@@ -112,7 +115,6 @@ async function loadGPXasECEF(url: string): Promise<Vector3[]> {
     const lat = parseFloat(pt.getAttribute("lat") || "0");
     const lon = parseFloat(pt.getAttribute("lon") || "0");
 
-    // Extrai a elevação (altitude) se existir
     const eleElem = pt.querySelector("ele");
     const alt = eleElem ? parseFloat(eleElem.textContent || "0") : 0;
 
@@ -137,7 +139,6 @@ function init(): void {
     depth: true,
     logarithmicDepthBuffer: true,
   });
-
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = NoToneMapping;
@@ -151,11 +152,36 @@ function init(): void {
   }
 
   // Ligh
-  const ambientLight = new AmbientLight(0xffffff, 1);
+  const ambientLight = new AmbientLight(0xffffff, 11);
   scene.add(ambientLight);
 
-  // Create drivers and teams
+  // Ensure the camera's up vector is set correctly (usually Y-up for camera space)
+  // The .decompose method should handle this via the quaternion,
+  // but explicitly setting it can prevent issues if the camera was previously manipulated.
+
+  // Update projection matrix if aspect ratio changed
+  // camera
+  const aspect = window.innerWidth / window.innerHeight;
+  camera = new PerspectiveCamera(75, aspect, 0.001, 1300 * globalScale);
+
+  camera.position.copy(cameraPositions[1]); // Use the first camera position from the array
+  camera.up.copy(cameraUp);
+  camera.lookAt(centerECEF);
+
+  camera.aspect = aspect;
+  camera.updateProjectionMatrix();
+
+  clippingGlobe();
+
+  globe = new Globe(scene, camera, renderer, /* disableControls= */ true);
+  globe.tiles.group.scale.multiplyScalar(globalScale);
   createDriversAndTeams();
+
+  scene.add(globe.tiles.group);
+
+  // scene.scale.multiplyScalar(globalScale);
+
+  // Create drivers and teams
   const followContainer = document.getElementById("follow-buttons");
   drivers.forEach((driver) => {
     const btn = document.createElement("button");
@@ -179,29 +205,6 @@ function init(): void {
     });
     followContainer?.appendChild(btn);
   });
-
-  // Ensure the camera's up vector is set correctly (usually Y-up for camera space)
-  // The .decompose method should handle this via the quaternion,
-  // but explicitly setting it can prevent issues if the camera was previously manipulated.
-
-  // Update projection matrix if aspect ratio changed
-  // camera
-  const aspect = window.innerWidth / window.innerHeight;
-  camera = new PerspectiveCamera(75, aspect, 0.001, 1300 * globalScale);
-
-  camera.position.copy(cameraPositions[1]); // Use the first camera position from the array
-  camera.up.copy(cameraUp);
-  camera.lookAt(centerECEF);
-
-  camera.aspect = aspect;
-  camera.updateProjectionMatrix();
-
-  clippingGlobe();
-
-  globe = new Globe(scene, camera, renderer, /* disableControls= */ true);
-  // globe.tiles.group.scale.multiplyScalar(globalScale);
-  scene.add(globe.tiles.group);
-  scene.scale.multiplyScalar(globalScale);
 
   window.addEventListener("resize", onWindowResize); // Handle window resize events
 
@@ -256,6 +259,17 @@ function render(): void {
         if (pos) {
           driver.positionOnTrack(pos);
           driver.updateLabel(camera, labelOffset);
+
+          // const geometry = new SphereGeometry(2, 16, 16);
+          // const material = new MeshStandardMaterial({ color: 0xffffff });
+          // let mesh = new Mesh(geometry, material);
+          // mesh.position.copy(pos);
+
+          // globe.tiles.group.add(mesh);
+          // scene.add(mesh);
+
+          // console.log("Position: " + pos.x);
+          // console.log("Mesh position: " + mesh.position.x);
         }
       });
     }
@@ -264,12 +278,9 @@ function render(): void {
       const pos = currentFollowDriver.car.mesh.position.clone().multiplyScalar(globalScale);
       const tangent = trackCurve.getTangentAt(trackTime);
       const up = pos.clone().normalize();
-      const cameraOffset = tangent
-        .clone()
-        .multiplyScalar(-30)
-        .add(up.clone().multiplyScalar(15))
-        .multiplyScalar(globalScale);
+      const cameraOffset = tangent.clone().multiplyScalar(-30).add(up.clone().multiplyScalar(15)).multiplyScalar(globalScale);
       const cameraPos = pos.clone().add(cameraOffset);
+
       camera.position.copy(cameraPos);
       camera.up.copy(up);
       camera.lookAt(pos.clone().add(tangent.clone().multiplyScalar(10)));
@@ -401,30 +412,30 @@ function createDriversAndTeams() {
   kimi.position = 4;
 
   // Set initial positions for the drivers
-  verstappen.positionOnTrack(initialPositions[1]);
-  kimi.positionOnTrack(initialPositions[1]);
-  oscar.positionOnTrack(initialPositions[2]);
-  hamilton.positionOnTrack(initialPositions[0]);
+  verstappen.positionOnTrack(initialPositions[verstappen.position]);
+  kimi.positionOnTrack(initialPositions[kimi.position]);
+  oscar.positionOnTrack(initialPositions[oscar.position]);
+  hamilton.positionOnTrack(initialPositions[hamilton.position]);
 
   // Add drivers to the scene
   drivers.push(hamilton, oscar, verstappen, kimi);
 
   drivers.forEach((driver) => {
     driver.label = createDriverLabel(driver.acronym.toUpperCase(), driver.car.team.color);
-    scene.add(driver.label);
+    globe.tiles.group.add(driver.label);
 
     const lineMaterial = new LineBasicMaterial({ color: 0xffffff });
-    const lineGeometry = new BufferGeometry().setFromPoints([
-      driver.car.mesh.position,
-      driver.car.mesh.position.clone(),
-    ]);
+    const lineGeometry = new BufferGeometry().setFromPoints([driver.car.mesh.position, driver.car.mesh.position.clone()]);
     driver.line = new Line(lineGeometry, lineMaterial);
-    scene.add(driver.line);
+    globe.tiles.group.add(driver.line);
+
+    globe.tiles.group.add(driver.car.mesh);
   });
 
-  drivers.forEach((driver) => {
-    scene.add(driver.car.mesh);
-  });
+  const sphere = new Mesh(new SphereGeometry(5), new MeshBasicMaterial({ color: 0xff0000 }));
+  sphere.position.copy(centerECEF);
+  sphere.renderOrder = 999;
+  globe.tiles.group.add(sphere);
 
   renderScoreboard(drivers);
 }

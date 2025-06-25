@@ -1,5 +1,6 @@
-import { Vector3, Sprite, Line, PerspectiveCamera } from "three";
+import { Vector3, Sprite, Line, PerspectiveCamera, MeshBasicMaterial, MeshStandardMaterial, SphereGeometry } from "three";
 import { Car } from "./Car";
+import { vec3 } from "three/tsl";
 
 export class Driver {
   name: string;
@@ -13,32 +14,29 @@ export class Driver {
   label?: Sprite;
   line?: Line;
 
-  constructor(
-    nome: string,
-    acronym: string,
-    driverNumber: number,
-    nacionalidade: string,
-    position: number,
-    points: number,
-    car: Car
-  ) {
+  constructor(nome: string, acronym: string, driverNumber: number, nationality: string, position: number, points: number, car: Car) {
     this.name = nome;
     this.acronym = acronym;
     this.driverNumber = driverNumber;
-    this.nationality = nacionalidade;
+    this.nationality = nationality;
     this.position = position;
     this.points = points;
     this.car = car;
   }
 
   updateLabel(camera: PerspectiveCamera, offset: Vector3) {
-    if (this.label && this.car && this.line) {
-      const pos = this.car.mesh.position;
-      const labelPos = pos.clone().add(offset);
+    const pos = this.car.mesh.position;
+    const labelPos = pos.clone().add(offset);
 
+    if (this.label) {
       this.label.position.copy(labelPos);
       this.label.quaternion.copy(camera.quaternion);
+      this.label.updateMatrixWorld();
+    }
+
+    if (this.line) {
       this.line.geometry.setFromPoints([pos, labelPos]);
+      this.line.updateMatrixWorld();
     }
   }
 

@@ -1,12 +1,5 @@
 import { GlobeControls, TilesRenderer } from "3d-tiles-renderer";
-import {
-  TilesFadePlugin,
-  UpdateOnChangePlugin,
-  TileCompressionPlugin,
-  UnloadTilesPlugin,
-  GLTFExtensionsPlugin,
-  GoogleCloudAuthPlugin,
-} from "3d-tiles-renderer/plugins";
+import { TilesFadePlugin, UpdateOnChangePlugin, TileCompressionPlugin, UnloadTilesPlugin, GLTFExtensionsPlugin, GoogleCloudAuthPlugin } from "3d-tiles-renderer/plugins";
 import { DRACOLoader } from "three-stdlib";
 import { Scene, PerspectiveCamera, WebGLRenderer } from "three";
 import { TileCreasedNormalsPlugin } from "../plugins/TileCreasedNormalsPlugin";
