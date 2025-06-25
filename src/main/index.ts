@@ -31,7 +31,10 @@ import {
   MeshStandardMaterial,
   MeshBasicMaterial,
   DoubleSide,
+  ACESFilmicToneMapping,
+  MeshNormalMaterial,
 } from "three";
+import { XRButton } from "three/examples/jsm/Addons.js";
 import { Globe } from "../globe";
 import { Geodetic, PointOfView, radians } from "@takram/three-geospatial";
 import { Team } from "../models/Team";
@@ -46,6 +49,10 @@ let scene: Scene;
 let trackCurve: CatmullRomCurve3 | null = null;
 let trackTime = 0;
 let currentFollowDriver: Driver | null = null;
+let arPlacingGeomap = false;
+let reticle: Mesh | null = null; 
+let hitTestSourceRequested = false;
+let hitTestSource: XRHitTestSource | null = null;
 const initialPositions: Vector3[] = [];
 const drivers: Driver[] = [];
 const labelOffset = new Vector3(0, 0, 30);
@@ -134,17 +141,23 @@ function init(): void {
   // renderer
   renderer = new WebGLRenderer({
     powerPreference: "high-performance",
-    antialias: false,
+    antialias: true,
     stencil: true,
     depth: true,
+    alpha: true,
     logarithmicDepthBuffer: true,
   });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.toneMapping = NoToneMapping;
-  renderer.toneMappingExposure = 0.5;
+  renderer.toneMapping = ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFSoftShadowMap;
+  renderer.shadowMap.enabled = true;
+    
+
+  renderer.xr.enabled = true;
+  renderer.xr.addEventListener('sessionend', onSessionEnd);
 
   const container = document.getElementById("container");
   if (container) {
@@ -237,13 +250,33 @@ function init(): void {
     animateCameraTo(cameraPositions[1], cameraUp, centerECEF, 1500);
   });
 
+  setupXR();
+  addCube();
+  
   renderer.setAnimationLoop(render);
 }
 
-function render(): void {
+function render(ts, frame): void {
   globe.update();
   // console.log("Camera position:", camera.position.toArray());
+    if (frame) {
+        const referenceSpace = renderer.xr.getReferenceSpace();
+        const session = renderer.xr.getSession();
 
+        if (reticle && session?.enabledFeatures?.includes('hit-test')) {
+            if (hitTestSource) {
+                const hitTestResults = frame.getHitTestResults(hitTestSource);
+                if (hitTestResults.length && arPlacingGeomap) {
+                    const hit = hitTestResults[0];
+                    reticle.visible = true;
+                    // @ts-ignore
+                    reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+                } else {
+                    reticle.visible = false;
+                }
+            }
+        }
+    }
   // Update effect materials with current camera settings
   if (renderer) {
     if (trackCurve && drivers.length > 0) {
@@ -467,6 +500,123 @@ function onWindowResize(): void {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+}
+function onXRSession() {
+    if (!renderer.xr.isPresenting){
+        arPlacingGeomap = true;
+        globe.tiles.group.visible = false;
+
+        globe.tiles.group.scale.multiplyScalar(1/1300);
+        const up = centerECEF.clone().normalize(); // direção radial (Z)
+        const east = new Vector3(0, 0, 1).cross(up).normalize(); // Eixo Leste
+        const north = up.clone().cross(east).normalize(); // Eixo Norte
+
+        const eastOffset = east.clone().multiplyScalar(650 * globalScale);
+        const westOffset = east.clone().multiplyScalar(-650 * globalScale);
+        const northOffset = north.clone().multiplyScalar(650 * globalScale);
+        const southOffset = north.clone().multiplyScalar(-650 * globalScale);
+
+        // Pontos dos 4 limites
+        const eastPoint = centerECEF.clone().add(eastOffset);
+        const westPoint = centerECEF.clone().add(westOffset);
+        const northPoint = centerECEF.clone().add(northOffset);
+        const southPoint = centerECEF.clone().add(southOffset);
+
+        // Normais dos planos (apontam para dentro do quadrado)
+        const eastNormal = east.clone().negate();
+        const westNormal = east.clone();
+        const northNormal = north.clone().negate();
+        const southNormal = north.clone();
+
+        // Criar os planos com base nas normais e pontos
+        const clippingPlanes = [
+            new Plane(eastNormal, -eastNormal.dot(eastPoint)),
+            new Plane(westNormal, -westNormal.dot(westPoint)),
+            new Plane(northNormal, -northNormal.dot(northPoint)),
+            new Plane(southNormal, -southNormal.dot(southPoint)),
+        ];
+
+        // Ativar no renderer
+        renderer.clippingPlanes = clippingPlanes;
+    }
+}
+
+function onSessionEnd() {
+    arPlacingGeomap = false;
+    globe.tiles.group.visible = true;
+    hitTestSourceRequested = false;
+}
+
+function onSelect(event) {
+    if (reticle && reticle.visible) {
+        let geoMap:Mesh = globe.tiles.group;
+        reticle.matrix.decompose(geoMap.position, geoMap.quaternion, geoMap.scale);
+        geoMap.scale.multiplyScalar(1/1300);
+        // geoMap.position.sub(centerECEF.multiplyScalar(1/1300));
+        arPlacingGeomap = false;
+        geoMap.visible = true;
+    }
+}
+
+function setupXR() {
+    let xrButton = XRButton.createButton(renderer, {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: []
+    });
+
+    xrButton.addEventListener('click', onXRSession);
+    document.body.appendChild(xrButton);
+
+    const tLoader = new TextureLoader();
+    reticle = new Mesh(
+        new BoxGeometry(9.15 / 10, 6.10 / 10, 0.01).rotateX(-Math.PI/2),
+        new MeshBasicMaterial({ map: tLoader.load('assets/reticle.png'), transparent: true })
+    );
+    reticle.matrixAutoUpdate = false;
+    reticle.visible = false;
+    scene.add(reticle);
+
+    renderer.xr.addEventListener('sessionstart', async () => {
+        const session = renderer.xr.getSession();
+        if (session && session.enabledFeatures){
+            console.log("Granted WebXR Features:", Array.from(session.enabledFeatures));
+
+            if (session.enabledFeatures.includes('hit-test')) {
+                if (hitTestSourceRequested === false) {
+                    session.requestReferenceSpace('viewer').then(function (referenceSpace) {
+                        // @ts-ignore
+                        session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
+                            hitTestSource = source;
+                        });
+                    });
+
+                    session.addEventListener('end', function () {
+                        hitTestSource = null;
+                        hitTestSourceRequested = false;
+                    });
+                    hitTestSourceRequested = true;
+                }
+            }
+            session.addEventListener('select', onSelect);
+        }
+    });
+}
+
+let cube;
+function addCube() {
+    const geometry = new BoxGeometry(0.15, 0.15, 0.15);
+    const material = new MeshNormalMaterial({
+        // color: 0xffffff,
+        transparent: true,
+        // shadowSide: THREE.FrontSide,
+        opacity: 0.5,
+        side: DoubleSide,
+    });
+    cube = new Mesh(geometry, material);
+    cube.castShadow = true;
+    cube.receiveShadow = true;
+    cube.position.set(0,0,0);
+    scene.add(cube);
 }
 
 window.addEventListener("load", init);
