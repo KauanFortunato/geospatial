@@ -136,7 +136,7 @@ async function loadGPXasECEF(url: string): Promise<Vector3[]> {
 function init(): void {
   // scene
   scene = new Scene();
-  scene.background = new Color(0xffffff);
+  //scene.background = new Color(0xffffff);
 
   // renderer
   renderer = new WebGLRenderer({
@@ -147,15 +147,13 @@ function init(): void {
     alpha: true,
     logarithmicDepthBuffer: true,
   });
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFSoftShadowMap;
-  renderer.shadowMap.enabled = true;
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight);
     
-
   renderer.xr.enabled = true;
   renderer.xr.addEventListener('sessionend', onSessionEnd);
 
@@ -501,44 +499,45 @@ function onWindowResize(): void {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
+
 function onXRSession() {
-    if (!renderer.xr.isPresenting){
-        arPlacingGeomap = true;
-        globe.tiles.group.visible = false;
+    // if (!renderer.xr.isPresenting){
+    //     arPlacingGeomap = true;
+    //     globe.tiles.group.visible = false;
 
-        globe.tiles.group.scale.multiplyScalar(1/1300);
-        const up = centerECEF.clone().normalize(); // direção radial (Z)
-        const east = new Vector3(0, 0, 1).cross(up).normalize(); // Eixo Leste
-        const north = up.clone().cross(east).normalize(); // Eixo Norte
+    //     globe.tiles.group.scale.multiplyScalar(1/1300);
+    //     const up = centerECEF.clone().normalize(); // direção radial (Z)
+    //     const east = new Vector3(0, 0, 1).cross(up).normalize(); // Eixo Leste
+    //     const north = up.clone().cross(east).normalize(); // Eixo Norte
 
-        const eastOffset = east.clone().multiplyScalar(650 * globalScale);
-        const westOffset = east.clone().multiplyScalar(-650 * globalScale);
-        const northOffset = north.clone().multiplyScalar(650 * globalScale);
-        const southOffset = north.clone().multiplyScalar(-650 * globalScale);
+    //     const eastOffset = east.clone().multiplyScalar(650 * globalScale);
+    //     const westOffset = east.clone().multiplyScalar(-650 * globalScale);
+    //     const northOffset = north.clone().multiplyScalar(650 * globalScale);
+    //     const southOffset = north.clone().multiplyScalar(-650 * globalScale);
 
-        // Pontos dos 4 limites
-        const eastPoint = centerECEF.clone().add(eastOffset);
-        const westPoint = centerECEF.clone().add(westOffset);
-        const northPoint = centerECEF.clone().add(northOffset);
-        const southPoint = centerECEF.clone().add(southOffset);
+    //     // Pontos dos 4 limites
+    //     const eastPoint = centerECEF.clone().add(eastOffset);
+    //     const westPoint = centerECEF.clone().add(westOffset);
+    //     const northPoint = centerECEF.clone().add(northOffset);
+    //     const southPoint = centerECEF.clone().add(southOffset);
 
-        // Normais dos planos (apontam para dentro do quadrado)
-        const eastNormal = east.clone().negate();
-        const westNormal = east.clone();
-        const northNormal = north.clone().negate();
-        const southNormal = north.clone();
+    //     // Normais dos planos (apontam para dentro do quadrado)
+    //     const eastNormal = east.clone().negate();
+    //     const westNormal = east.clone();
+    //     const northNormal = north.clone().negate();
+    //     const southNormal = north.clone();
 
-        // Criar os planos com base nas normais e pontos
-        const clippingPlanes = [
-            new Plane(eastNormal, -eastNormal.dot(eastPoint)),
-            new Plane(westNormal, -westNormal.dot(westPoint)),
-            new Plane(northNormal, -northNormal.dot(northPoint)),
-            new Plane(southNormal, -southNormal.dot(southPoint)),
-        ];
+    //     // Criar os planos com base nas normais e pontos
+    //     const clippingPlanes = [
+    //         new Plane(eastNormal, -eastNormal.dot(eastPoint)),
+    //         new Plane(westNormal, -westNormal.dot(westPoint)),
+    //         new Plane(northNormal, -northNormal.dot(northPoint)),
+    //         new Plane(southNormal, -southNormal.dot(southPoint)),
+    //     ];
 
-        // Ativar no renderer
-        renderer.clippingPlanes = clippingPlanes;
-    }
+    //     // Ativar no renderer
+    //     renderer.clippingPlanes = clippingPlanes;
+    // }
 }
 
 function onSessionEnd() {
