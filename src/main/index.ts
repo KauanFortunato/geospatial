@@ -33,6 +33,18 @@ import {
   DoubleSide,
   ACESFilmicToneMapping,
   MeshNormalMaterial,
+  Box3,
+  Quaternion,
+  Raycaster,
+  Sphere,
+  Spherical,
+  Vector2,
+  Vector4,
+  Clock,
+  MathUtils,
+  Euler,
+  AxesHelper,
+  ArrowHelper
 } from "three";
 import { XRButton } from "three/examples/jsm/Addons.js";
 import { Globe } from "../globe";
@@ -40,7 +52,24 @@ import { Geodetic, PointOfView, radians } from "@takram/three-geospatial";
 import { Team } from "../models/Team";
 import { Driver } from "../models/Driver";
 import { Car } from "../models/Car";
+import { OrbitControls } from "three-stdlib";
+// import CameraControls from "camera-controls";
 
+const subsetOfTHREE = {
+	Vector2   : Vector2,
+	Vector3   : Vector3,
+	Vector4   : Vector4,
+	Quaternion: Quaternion,
+	Matrix4   : Matrix4,
+	Spherical : Spherical,
+	Box3      : Box3,
+	Sphere    : Sphere,
+	Raycaster : Raycaster,
+};
+
+// CameraControls.install({ THREE: subsetOfTHREE });
+
+let controls: OrbitControls;
 let globalScale = 1;
 let globe: Globe;
 let renderer: WebGLRenderer;
@@ -57,33 +86,85 @@ const initialPositions: Vector3[] = [];
 const drivers: Driver[] = [];
 const labelOffset = new Vector3(0, 0, 30);
 
+const clock = new Clock();
 const params = new URLSearchParams(window.location.search);
 const scaleParam = params.get("scale");
 
 const buttonScale = document.getElementById("scale-scene");
 if (buttonScale) {
   buttonScale.addEventListener("click", () => {
-    const url = new URL(window.location.href);
-    if (scaleParam === "small") {
-      url.searchParams.delete("scale");
-    } else {
-      url.searchParams.set("scale", "small");
+    console.log('click');
+    // const url = new URL(window.location.href);
+    // if (scaleParam === "small") {
+    //   url.searchParams.delete("scale");
+    // } else {
+    //   url.searchParams.set("scale", "small");
+    // }
+    // window.location.href = url.toString();
+
+    // Convert lat/lon to radians
+    
+    function latLonToECEF(latRad, lonRad, ellipsoid) {
+        const a = ellipsoid.radius.x;
+        const b = ellipsoid.radius.y;
+
+        const sinLat = Math.sin(latRad);
+        const cosLat = Math.cos(latRad);
+        const sinLon = Math.sin(lonRad);
+        const cosLon = Math.cos(lonRad);
+
+        const e2 = (a ** 2 - b ** 2) / a ** 2;
+        const N = a / Math.sqrt(1 - e2 * sinLat * sinLat);
+
+        const x = N * cosLat * cosLon;
+        const y = N * cosLat * sinLon;
+        const z = (b ** 2 / a ** 2) * N * sinLat;
+
+        return new Vector3(x, y, z);
     }
-    window.location.href = url.toString();
+    
+    const scale = 1/1700; // or whatever factor you want
+    const lat = MathUtils.degToRad(latitude); // your target
+    const lon = MathUtils.degToRad(longitude);
+
+    const enuMatrix = new Matrix4();
+    globe.tiles.ellipsoid.getEastNorthUpFrame(lat, lon, enuMatrix);
+
+    const alignZUp = new Matrix4().makeRotationFromEuler(new Euler(Math.PI / 2, Math.PI / 2, 0));
+    enuMatrix.multiply(alignZUp);
+
+    const transform = enuMatrix.clone().invert();
+    globe.tiles.group.applyMatrix4(transform); // Rotate
+    globe.tiles.group.scale.setScalar(scale);  // Scale
+    globe.tiles.group.updateMatrixWorld(true); // Update internal matrix
+
+    // Compute offset
+    const up = new Vector3(0, 1, 0).applyMatrix4(transform).normalize();
+    const delta = globe.tiles.ellipsoid.calculateEffectiveRadius(latitude) * (1 - scale);
+    const correction = up.clone().multiplyScalar(delta);
+
+    // Compensate offset
+    globe.tiles.group.position.add(correction.negate());
+    globe.tiles.group.updateMatrixWorld(true);
+
+    // Position camera
+    camera.position.copy(new Vector3(0, 10, 0));
+    camera.lookAt(new Vector3(0, 0, 0));
+    camera.updateProjectionMatrix();
   });
 }
 
-if (scaleParam === "small") {
-  globalScale = 1 / 1300;
-  if (buttonScale) {
-    buttonScale.textContent = "Aumentar escala da cena";
-  }
-} else {
-  globalScale = 1;
-  if (buttonScale) {
-    buttonScale.textContent = "Reduzir escala da cena";
-  }
-}
+// if (scaleParam === "small") {
+//   globalScale = 1 / 1300;
+//   if (buttonScale) {
+//     buttonScale.textContent = "Aumentar escala da cena";
+//   }
+// } else {
+//   globalScale = 1;
+//   if (buttonScale) {
+//     buttonScale.textContent = "Reduzir escala da cena";
+//   }
+// }
 
 const longitude = -9.394761567056307; // degrees
 const latitude = 38.75025825516866; // degrees
@@ -173,7 +254,7 @@ function init(): void {
   // Update projection matrix if aspect ratio changed
   // camera
   const aspect = window.innerWidth / window.innerHeight;
-  camera = new PerspectiveCamera(75, aspect, 0.001, 1300 * globalScale);
+  camera = new PerspectiveCamera(75, aspect, 0.1, 130000 * globalScale);
 
   camera.position.copy(cameraPositions[1]); // Use the first camera position from the array
   camera.up.copy(cameraUp);
@@ -247,14 +328,20 @@ function init(): void {
   document.getElementById("camera-position-2")?.addEventListener("click", () => {
     animateCameraTo(cameraPositions[1], cameraUp, centerECEF, 1500);
   });
+  
+  controls = new OrbitControls(camera, renderer.domElement);
+//   controls.maxPolarAngle = Math.PI / 2;
 
   setupXR();
   addCube();
+
+  scene.add(new AxesHelper(10));
   
   renderer.setAnimationLoop(render);
 }
 
 function render(ts, frame): void {
+  controls.update();
   globe.update();
   // console.log("Camera position:", camera.position.toArray());
     if (frame) {
@@ -317,7 +404,6 @@ function render(ts, frame): void {
       camera.lookAt(pos.clone().add(tangent.clone().multiplyScalar(10)));
     }
 
-    // composer.render();
     renderer.render(scene, camera);
   }
 }
@@ -362,8 +448,8 @@ function clippingGlobe() {
   ];
 
   // Activate clipping planes in the renderer
-  renderer.clippingPlanes = clippingPlanes;
-  renderer.localClippingEnabled = true;
+//   renderer.clippingPlanes = clippingPlanes;
+//   renderer.localClippingEnabled = true;
 }
 
 function createDriverLabel(text: string, color: string): Sprite {
@@ -603,7 +689,7 @@ function setupXR() {
 
 let cube;
 function addCube() {
-    const geometry = new BoxGeometry(0.15, 0.15, 0.15);
+    const geometry = new BoxGeometry(5, 5, 5);
     const material = new MeshNormalMaterial({
         // color: 0xffffff,
         transparent: true,

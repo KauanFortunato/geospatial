@@ -1,15 +1,48 @@
 import { GlobeControls, TilesRenderer } from "3d-tiles-renderer";
-import { TilesFadePlugin, UpdateOnChangePlugin, TileCompressionPlugin, UnloadTilesPlugin, GLTFExtensionsPlugin, GoogleCloudAuthPlugin } from "3d-tiles-renderer/plugins";
+import { TilesFadePlugin, UpdateOnChangePlugin, TileCompressionPlugin, UnloadTilesPlugin, GLTFExtensionsPlugin, GoogleCloudAuthPlugin, ReorientationPlugin } from "3d-tiles-renderer/plugins";
 import { DRACOLoader } from "three-stdlib";
 import { Scene, PerspectiveCamera, WebGLRenderer } from "three";
 import { TileCreasedNormalsPlugin } from "../plugins/TileCreasedNormalsPlugin";
+
+class SkipLodPlugin {
+    name: string;
+    tiles: any;
+	constructor() {
+		this.name = 'SKIP_LOD_PLUGIN';
+		this.tiles = null;
+	}
+
+	init(tiles) {
+		this.tiles = tiles;
+
+		// Mark tiles as refined when their children become visible
+		tiles.addEventListener('tile-visibility-change', ({ tile, visible }) => {
+			if (!tile.userData) tile.userData = {};
+
+            if (!visible) return;
+
+			const parent = tile.parent;
+			if (parent) {
+				parent.userData = parent.userData || {};
+				parent.userData.wasRefined = true;
+			}
+		});
+	}
+        calculateTileViewError(tile, target) {
+            if (tile.userData?.wasRefined) {
+                // Prevent this tile from ever being traversed again
+                target.inView = false;
+                target.error = -Infinity;
+            }
+        }
+}
 
 export class Globe {
   scene: Scene;
   camera: PerspectiveCamera;
   renderer: WebGLRenderer;
   tiles: any;
-  controls: GlobeControls;
+//   controls: GlobeControls;
   private _initialInteractionPerformed: boolean = false;
 
   constructor(scene: Scene, camera: PerspectiveCamera, renderer: WebGLRenderer, disableControls: boolean = false) {
@@ -18,6 +51,9 @@ export class Globe {
     this.renderer = renderer;
 
     this.tiles = new TilesRenderer();
+    this.tiles.lruCache.maxSize = Infinity;
+    this.tiles.lruCache.minSize = Infinity;
+
     this.tiles.registerPlugin(
       new GoogleCloudAuthPlugin({
         apiToken: import.meta.env.VITE_GOOGLE_MAPS_JS_API_KEY,
@@ -30,12 +66,14 @@ export class Globe {
       })
     );
     this.tiles.registerPlugin(new TileCompressionPlugin());
-    this.tiles.registerPlugin(new UpdateOnChangePlugin());
-    this.tiles.registerPlugin(new UnloadTilesPlugin());
+    // this.tiles.registerPlugin(new UpdateOnChangePlugin());
+    // this.tiles.registerPlugin(new UnloadTilesPlugin());
     this.tiles.registerPlugin(new TilesFadePlugin());
+    // this.tiles.registerPlugin(new ReorientationPlugin());
+    this.tiles.registerPlugin(new SkipLodPlugin());
     this.tiles.registerPlugin(
       new TileCreasedNormalsPlugin({
-        creaseAngle: 45,
+        creaseAngle:45,
       })
     );
 
@@ -45,57 +83,61 @@ export class Globe {
     this.tiles.maxScreenSpaceError = 1.0;
     this.tiles.lodUpdateStrategy = "all";
     this.tiles.downloadQueueMaxPriority = 10;
-    this.tiles.errorTarget = 2;
+    this.tiles.errorTarget = 0.1;
     this.tiles.disposeInactiveTiles = false;
 
-    this.controls = new GlobeControls(this.scene, this.camera, this.renderer.domElement, this.tiles);
-    this.controls.enableDamping = true;
-    this.controls.enabled = !disableControls;
+    this.tiles.onTileLoad = (tile) => {
+        console.log(tile);
+    };
 
-    if (disableControls) {
-      const activateControlsAndRedispatch = (event: PointerEvent | WheelEvent) => {
-        // If controls have already been activated by a different event type
-        // (e.g., pointerdown activated, and now the wheel listener fires),
-        // this flag will be true. In this case, we do nothing here, as the
-        // GlobeControls are already enabled and should pick up the original event.
-        if (this._initialInteractionPerformed) {
-          return;
-        }
+    // this.controls = new GlobeControls(this.scene, this.camera, this.renderer.domElement, this.tiles);
+    // this.controls.enableDamping = true;
+    // this.controls.enabled = !disableControls;
 
-        this.controls.enabled = true;
-        this._initialInteractionPerformed = true; // Set flag after enabling controls
+    // if (disableControls) {
+    //   const activateControlsAndRedispatch = (event: PointerEvent | WheelEvent) => {
+    //     // If controls have already been activated by a different event type
+    //     // (e.g., pointerdown activated, and now the wheel listener fires),
+    //     // this flag will be true. In this case, we do nothing here, as the
+    //     // GlobeControls are already enabled and should pick up the original event.
+    //     if (this._initialInteractionPerformed) {
+    //       return;
+    //     }
 
-        let newEventToRedispatch;
-        if (event instanceof PointerEvent) {
-          newEventToRedispatch = new PointerEvent(event.type, event);
-        } else if (event instanceof WheelEvent) {
-          newEventToRedispatch = new WheelEvent(event.type, event);
-        } else {
-          // Should not happen with correctly typed event listeners
-          console.warn("Globe: Unknown event type for control activation:", event);
-          return;
-        }
+    //     // this.controls.enabled = true;
+    //     this._initialInteractionPerformed = true; // Set flag after enabling controls
 
-        this.renderer.domElement.dispatchEvent(newEventToRedispatch);
-        console.log("Globe controls enabled; ${event.type} event re-dispatched.");
-      };
+    //     let newEventToRedispatch;
+    //     if (event instanceof PointerEvent) {
+    //       newEventToRedispatch = new PointerEvent(event.type, event);
+    //     } else if (event instanceof WheelEvent) {
+    //       newEventToRedispatch = new WheelEvent(event.type, event);
+    //     } else {
+    //       // Should not happen with correctly typed event listeners
+    //       console.warn("Globe: Unknown event type for control activation:", event);
+    //       return;
+    //     }
 
-      // Add one-time listeners for pointerdown and wheel events
-      this.renderer.domElement.addEventListener("pointerdown", activateControlsAndRedispatch as EventListener, {
-        once: true,
-      });
-      this.renderer.domElement.addEventListener("wheel", activateControlsAndRedispatch as EventListener, {
-        once: true,
-      });
-    }
+    //     this.renderer.domElement.dispatchEvent(newEventToRedispatch);
+    //     console.log("Globe controls enabled; ${event.type} event re-dispatched.");
+    //   };
+
+    //   // Add one-time listeners for pointerdown and wheel events
+    //   this.renderer.domElement.addEventListener("pointerdown", activateControlsAndRedispatch as EventListener, {
+    //     once: true,
+    //   });
+    //   this.renderer.domElement.addEventListener("wheel", activateControlsAndRedispatch as EventListener, {
+    //     once: true,
+    //   });
+    // }
   }
 
   update(): void {
-    this.controls.update();
+    // this.controls.update();
 
     this.camera.updateMatrixWorld();
     this.tiles.setResolutionFromRenderer(this.camera, this.renderer);
-    this.tiles.setCamera(this.camera);
+    // this.tiles.setCamera(this.camera);
 
     this.tiles.update();
 
