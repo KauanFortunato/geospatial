@@ -28,31 +28,77 @@ class SkipLodPlugin {
 			}
 		});
 	}
-        calculateTileViewError(tile, target) {
-            if (tile.userData?.wasRefined) {
-                // Prevent this tile from ever being traversed again
-                target.inView = false;
-                target.error = -Infinity;
-            }
+    calculateTileViewError(tile, target) {
+        if (tile.userData?.wasRefined) {
+            // Prevent this tile from ever being traversed again
+            target.inView = false;
+            target.error = Infinity;
         }
+    }
+}
+
+class GlobeClippingPlugin {
+    name: string;
+    tilesRenderer: any;
+    clippingPlanes: any;
+
+    constructor() {
+        this.name = 'GLOBE_CLIPPING_PLUGIN';
+        this.onLoadModel = this.onLoadModel.bind(this);
+    }
+
+    init(tilesRenderer) {
+		this.tilesRenderer = tilesRenderer;
+        this.tilesRenderer.addEventListener('load-model', this.onLoadModel);
+    }
+
+	applyClipping(clippingPlanes) {
+        this.clippingPlanes = clippingPlanes;
+		this.tilesRenderer.group.traverse(obj => {
+			if (obj.isMesh && obj.material) {
+				obj.material.clippingPlanes = clippingPlanes;
+				obj.material.clipShadows = true;
+				obj.material.needsUpdate = true;
+			}
+		});
+	}
+
+    onLoadModel({ scene }) {
+        if (this.clippingPlanes) {
+            this.tilesRenderer.group.traverse(obj => {
+                if (obj.isMesh && obj.material) {
+                    obj.material.clippingPlanes = this.clippingPlanes;
+                    obj.material.clipShadows = true;
+                    obj.material.needsUpdate = true;
+                }
+		    });
+        }
+	}
+
+    dispose() {
+		this.tilesRenderer?.removeEventListener('load-model', this.onLoadModel);
+	}
 }
 
 export class Globe {
   scene: Scene;
-  camera: PerspectiveCamera;
+  cameras: PerspectiveCamera[];
   renderer: WebGLRenderer;
   tiles: any;
 //   controls: GlobeControls;
   private _initialInteractionPerformed: boolean = false;
 
-  constructor(scene: Scene, camera: PerspectiveCamera, renderer: WebGLRenderer, disableControls: boolean = false) {
+  constructor(scene: Scene, cameras: PerspectiveCamera[], renderer: WebGLRenderer, disableControls: boolean = false) {
     this.scene = scene;
-    this.camera = camera;
+    this.cameras = cameras;
     this.renderer = renderer;
 
     this.tiles = new TilesRenderer();
     this.tiles.lruCache.maxSize = Infinity;
     this.tiles.lruCache.minSize = Infinity;
+    this.tiles.lruCache.maxBytesSize = Infinity;
+    this.tiles.lruCache.minBytesSize = Infinity;
+    this.tiles.lruCache.unloadPercent = 0;
 
     this.tiles.registerPlugin(
       new GoogleCloudAuthPlugin({
@@ -66,81 +112,42 @@ export class Globe {
       })
     );
     this.tiles.registerPlugin(new TileCompressionPlugin());
-    // this.tiles.registerPlugin(new UpdateOnChangePlugin());
-    // this.tiles.registerPlugin(new UnloadTilesPlugin());
+    this.tiles.registerPlugin(new UpdateOnChangePlugin());
+    this.tiles.registerPlugin(new UnloadTilesPlugin());
     this.tiles.registerPlugin(new TilesFadePlugin());
-    // this.tiles.registerPlugin(new ReorientationPlugin());
-    this.tiles.registerPlugin(new SkipLodPlugin());
-    this.tiles.registerPlugin(
-      new TileCreasedNormalsPlugin({
-        creaseAngle:45,
-      })
-    );
+    // this.tiles.registerPlugin(new SkipLodPlugin());
+    // this.tiles.registerPlugin(new GlobeClippingPlugin());
+    this.tiles.registerPlugin(new TileCreasedNormalsPlugin({creaseAngle:45}));
 
-    this.tiles.setResolutionFromRenderer(this.camera, this.renderer);
-    this.tiles.setCamera(this.camera);
+    this.tiles.setResolutionFromRenderer(this.cameras[0], this.renderer);
+    this.tiles.setCamera(this.cameras[0]);
 
-    this.tiles.maxScreenSpaceError = 1.0;
+    this.tiles.maxScreenSpaceError = 0;
     this.tiles.lodUpdateStrategy = "all";
     this.tiles.downloadQueueMaxPriority = 10;
-    this.tiles.errorTarget = 0.1;
-    this.tiles.disposeInactiveTiles = false;
-
+    this.tiles.errorTarget = 0.00001;
+    this.tiles.maxDepth = Infinity;
+    this.tiles.disposeInactiveTiles = true;
+    // this.tiles.displayActiveTiles = true;
     this.tiles.onTileLoad = (tile) => {
         console.log(tile);
     };
-
-    // this.controls = new GlobeControls(this.scene, this.camera, this.renderer.domElement, this.tiles);
-    // this.controls.enableDamping = true;
-    // this.controls.enabled = !disableControls;
-
-    // if (disableControls) {
-    //   const activateControlsAndRedispatch = (event: PointerEvent | WheelEvent) => {
-    //     // If controls have already been activated by a different event type
-    //     // (e.g., pointerdown activated, and now the wheel listener fires),
-    //     // this flag will be true. In this case, we do nothing here, as the
-    //     // GlobeControls are already enabled and should pick up the original event.
-    //     if (this._initialInteractionPerformed) {
-    //       return;
-    //     }
-
-    //     // this.controls.enabled = true;
-    //     this._initialInteractionPerformed = true; // Set flag after enabling controls
-
-    //     let newEventToRedispatch;
-    //     if (event instanceof PointerEvent) {
-    //       newEventToRedispatch = new PointerEvent(event.type, event);
-    //     } else if (event instanceof WheelEvent) {
-    //       newEventToRedispatch = new WheelEvent(event.type, event);
-    //     } else {
-    //       // Should not happen with correctly typed event listeners
-    //       console.warn("Globe: Unknown event type for control activation:", event);
-    //       return;
-    //     }
-
-    //     this.renderer.domElement.dispatchEvent(newEventToRedispatch);
-    //     console.log("Globe controls enabled; ${event.type} event re-dispatched.");
-    //   };
-
-    //   // Add one-time listeners for pointerdown and wheel events
-    //   this.renderer.domElement.addEventListener("pointerdown", activateControlsAndRedispatch as EventListener, {
-    //     once: true,
-    //   });
-    //   this.renderer.domElement.addEventListener("wheel", activateControlsAndRedispatch as EventListener, {
-    //     once: true,
-    //   });
-    // }
   }
 
   update(): void {
-    // this.controls.update();
+    // console.log(
+    //     'Pending preprocess jobs:', this.tiles.processNodeQueue.currJobs, 
+    //     'Items:', this.tiles.processNodeQueue.items.length,
+    //     'running:', this.tiles.processNodeQueue.scheduled,
+    //     'MaxJobs:', this.tiles.processNodeQueue.maxJobs, 
+    // );
 
-    this.camera.updateMatrixWorld();
-    this.tiles.setResolutionFromRenderer(this.camera, this.renderer);
-    // this.tiles.setCamera(this.camera);
-
-    this.tiles.update();
-
+    this.cameras.forEach(camera => {
+        camera.updateMatrixWorld();
+        this.tiles.setCamera(camera);
+        this.tiles.setResolutionFromRenderer(camera, this.renderer);
+        this.tiles.update();
+    });
     this.updateAttributions();
   }
 

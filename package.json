@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --open",
+    "dev": "vite --open --host --force",
     "clean": "rm -rf dist",
     "build": "npm run clean && vite build",
     "preview": "vite preview",
@@ -28,6 +28,7 @@
     "postprocessing": "^6.37.2",
     "three": "^0.175.0",
     "three-stdlib": "^2.36.0",
+    "vite-plugin-mkcert": "^1.17.8",
     "workerpool": "^9.2.0"
   }
 }
