@@ -36,7 +36,12 @@ import {
     MathUtils,
     Euler,
     AxesHelper,
-    CameraHelper
+    CameraHelper,
+    Color,
+    ArrowHelper,
+    Triangle,
+    Matrix3,
+    Object3D
 } from "three";
 import { XRButton } from "three/examples/jsm/Addons.js";
 import { Globe } from "../globe";
@@ -73,13 +78,17 @@ let reticle: Mesh | null = null;
 let hitTestSourceRequested = false;
 let hitTestSource: XRHitTestSource | null = null;
 let lodCameras: PerspectiveCamera[] = [];
+const LOCAL_AXIS = new Vector3(0, 1, 0);
 const globeContainer = new Group();
 const initialPositions: Vector3[] = [];
 const drivers: Driver[] = [];
 const labelOffset = new Vector3(0, 0, 30);
 
-const showOrigin = true;
-const showLodCamHelpers = true;
+
+let recorder;
+const enableRecordingFeatures = false;
+const showOrigin = false;
+const showLodCamHelpers = false;
 const useClipping = false;
 const scale = 1 / 1700;
 const longitude = -9.394761567056307; // degrees
@@ -89,10 +98,13 @@ const numLodCamRows = 1;
 const lodCamFOV = 155;
 const lodCamHeight = 350;
 const lodCamAspectRatio = 1;
+const rayOriginAlt = 10000;
 const clock = new Clock();
 
 const centerECEF = new Geodetic(radians(longitude), radians(latitude), 0).toECEF().multiplyScalar(globalScale);
 const cameraUp = centerECEF.clone().normalize();
+
+const raycaster = new Raycaster();
 
 const rawLLA = [
     [-9.392928078775599, 38.749255151676735, 188],
@@ -143,6 +155,8 @@ function init(): void {
     setupMainCamera(); // Setup main camera
     setupLODCameras(); // Setup LOD cameras - Hires LOD Camera force tiles to load at full resolution & detail.
     setupCameraControls();
+    if (enableRecordingFeatures)
+        setupRecordingFeatures();
 
     // Setup georeferenced globe
     globe = new Globe(scene, lodCameras, renderer, true);
@@ -159,7 +173,7 @@ function init(): void {
     globeContainer.updateMatrixWorld(true); // Update internal matrix
 
     // Clipping planes of unit by unit, unit = 1m
-    const unit = 1;
+    const unit = 0.9;
     const clippingPlanes = [
         new Plane(new Vector3(unit, 0, 0), unit / 2),  // left
         new Plane(new Vector3(-unit, 0, 0), unit / 2),  // right
@@ -221,10 +235,15 @@ function init(): void {
     // Camera controls
     document.getElementById("camera-position-1")?.addEventListener("click", () => {
         // animateCameraTo(cameraPositions[0], cameraUp, centerECEF, 1500);
+
+        if(enableRecordingFeatures)
+            recorder.start();
     });
 
     document.getElementById("camera-position-2")?.addEventListener("click", () => {
         // animateCameraTo(cameraPositions[1], cameraUp, centerECEF, 1500);
+        if(enableRecordingFeatures)
+            recorder.stop();
     });
 
 
@@ -238,8 +257,9 @@ function setupGraphicsEngine() {
         antialias: true,
         stencil: true,
         depth: true,
-        alpha: true,
-        logarithmicDepthBuffer: true
+        alpha: !enableRecordingFeatures,
+        logarithmicDepthBuffer: true,
+        preserveDrawingBuffer: enableRecordingFeatures
     });
     renderer.toneMapping = ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1;
@@ -253,7 +273,10 @@ function setupGraphicsEngine() {
     if (webContainer) {
         webContainer.appendChild(renderer.domElement);
     }
+    
     scene = new Scene();
+    if (enableRecordingFeatures)
+        scene.background = new Color().setHex(0x00FF00);
 
     renderer.setAnimationLoop(onRender);
 }
@@ -343,6 +366,34 @@ function setupLODCameras(heightRatio = 2) {
 function setupCameraControls() {
     controls = new CameraControls(camera, renderer.domElement);
     controls.maxPolarAngle = Math.PI / 2;
+}
+
+function setupRecordingFeatures() {
+    const stream = renderer.domElement.captureStream(30);
+
+    // Using a WebM codec that supports alpha (VP8 or VP9)
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm;codecs=vp8';
+    const chunks: BlobPart[] = [];
+    recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5_000_000 });
+
+    recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size) chunks.push(e.data);
+    };
+
+    recorder.onstop = () => {
+        // Assemble the final WebM blob
+        const blob = new Blob(chunks, { type: mimeType });
+        const url = URL.createObjectURL(blob);
+
+        // Automatically download the content
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'transparent_capture.webm';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
 }
 
 function createDriverLabel(text: string, color: string): Sprite {
@@ -445,6 +496,71 @@ function createDriversAndTeams() {
     renderScoreboard(drivers);
 }
 
+function getRaycastHit(x: number, y: number) {
+    const rayOrigin = new Vector3(x, rayOriginAlt, y);
+    const rayDirection = new Vector3(0, -1, 0);
+    raycaster.set(rayOrigin, rayDirection);
+    return raycaster.intersectObject(globe.tiles.group, false)[0];
+}
+
+function getSmoothHitNormal(hit) {
+    const { face, object, point } = hit;
+    const geom = object.geometry;
+    const posAttr = geom.attributes.position;
+    let normAttr = geom.attributes.normal;
+
+    // ensure normals exist
+    if (!normAttr) {
+        geom.computeVertexNormals();
+        normAttr = geom.attributes.normal;
+    }
+
+    // 1) pull the triangle’s three vertex positions
+    const vA = new Vector3().fromBufferAttribute(posAttr, face.a);
+    const vB = new Vector3().fromBufferAttribute(posAttr, face.b);
+    const vC = new Vector3().fromBufferAttribute(posAttr, face.c);
+
+    // 2) compute barycentric coords of the hit point
+    const bary = new Vector3();
+    Triangle.getBarycoord(point, vA, vB, vC, bary);
+
+    // 3) pull the three vertex normals
+    const nA = new Vector3().fromBufferAttribute(normAttr, face.a);
+    const nB = new Vector3().fromBufferAttribute(normAttr, face.b);
+    const nC = new Vector3().fromBufferAttribute(normAttr, face.c);
+
+    // 4) interpolate them
+    const interpolated = new Vector3()
+        .set(0, 0, 0)
+        .addScaledVector(nA, bary.x)
+        .addScaledVector(nB, bary.y)
+        .addScaledVector(nC, bary.z)
+        .normalize();
+
+    // 5) transform to world space
+    object.updateMatrixWorld(true);
+    const normalMatrix = new Matrix3().getNormalMatrix(object.matrixWorld);
+    interpolated.applyMatrix3(normalMatrix).normalize();
+
+    return interpolated;
+}
+
+function getHitAltitude(hit, compensation = 0.5){
+    return (rayOriginAlt - hit.distance) / scale + compensation * scale;
+}
+
+function setObjectOnRoad(object: Object3D){
+    // TODO
+    // get object pos x, y
+    // call getRaycastHit
+    // get hit position, compensate car altitude approx: 0.5 / scale
+    // get hit normal
+    // apply normal and position
+    //       const q = new THREE.Quaternion().setFromUnitVectors( LOCAL_AXIS, normalWS );
+    //       object.quaternion.copy(q);
+    //       object.position.copy(hitPointCompensated);
+}
+
 function renderScoreboard(drivers: Driver[]): void {
     const body = document.getElementById("scoreboard-body");
     if (!body) return;
@@ -469,6 +585,14 @@ function renderScoreboard(drivers: Driver[]): void {
 }
 
 function onRender(ts, frame): void {
+    // if (globe.tiles.processNodeQueue.scheduled)
+    //     console.log(
+    //         'Pending preprocess jobs:', globe.tiles.processNodeQueue.currJobs, 
+    //         'Items:', globe.tiles.processNodeQueue.items.length,
+    //         'running:', globe.tiles.processNodeQueue.scheduled,
+    //         'MaxJobs:', globe.tiles.processNodeQueue.maxJobs, 
+    //     );
+
     if (!frame) {
         if (controls)
             controls.update(clock.getDelta());
@@ -561,7 +685,7 @@ function onSelect(event) {
     if (reticle && reticle.visible) {
         const clippingPlugin = globe.tiles.getPluginByName('GLOBE_CLIPPING_PLUGIN');
         reticle.matrix.decompose(globeContainer.position, globeContainer.quaternion, globeContainer.scale);
-        globeContainer.scale.setScalar(1 / 1700);
+        globeContainer.scale.setScalar(scale);
         globeContainer.updateMatrixWorld(true);
 
         //         const clippingPlanes = clippingPlugin.clippingPlanes.map(plane => plane.clone().applyMatrix4(globeContainer.matrixWorld));
