@@ -50,6 +50,7 @@ import { Team } from "../models/Team";
 import { Driver } from "../models/Driver";
 import { Car } from "../models/Car";
 import CameraControls from "camera-controls";
+import { loadCarModel } from "../utils/modelLoader";
 
 const subsetOfTHREE = {
     Vector2: Vector2,
@@ -100,6 +101,7 @@ const lodCamHeight = 350;
 const lodCamAspectRatio = 1;
 const rayOriginAlt = 10000;
 const clock = new Clock();
+let transform;
 
 const centerECEF = new Geodetic(radians(longitude), radians(latitude), 0).toECEF().multiplyScalar(globalScale);
 const cameraUp = centerECEF.clone().normalize();
@@ -167,7 +169,7 @@ function init(): void {
     globe.tiles.ellipsoid.getEastNorthUpFrame(MathUtils.degToRad(latitude), MathUtils.degToRad(longitude), enuMatrix);
     enuMatrix.multiply(new Matrix4().makeRotationFromEuler(new Euler(Math.PI / 2, Math.PI / 2, 0)));
 
-    const transform = enuMatrix.clone().invert();
+    transform = enuMatrix.clone().invert();
     globe.tiles.group.applyMatrix4(transform); // Rotate and Position the lat/lon point on group container origin
     globeContainer.scale.setScalar(scale);  // Scale the group to the desired factor
     globeContainer.updateMatrixWorld(true); // Update internal matrix
@@ -456,27 +458,35 @@ function animateCameraTo(targetPos: Vector3, targetUp: Vector3, targetLookAt: Ve
     requestAnimationFrame(update);
 }
 
-function createDriversAndTeams() {
+async function createDriversAndTeams() {
     // Create drivers and teams
     let redBull = new Team("Red Bull Racing", "#1E41FF");
     let mercedes = new Team("Mercedes-AMG Petronas", "#00D2BE");
     let ferrari = new Team("Scuderia Ferrari", "#DC0000");
     let mclaren = new Team("McLaren F1 Team", "#FF8700");
 
-    let verstappen = new Driver("Max Verstappen", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB19", redBull));
-    let oscar = new Driver("Oscar Piastri", "pia", 81, "Australia", 7, 0, new Car(81, "MCL60", mclaren));
-    let hamilton = new Driver("Lewis Hamilton", "ham", 44, "United Kingdom", 3, 0, new Car(44, "W14", ferrari));
-    let kimi = new Driver("Kimi Räikkönen", "rak", 7, "Finland", 4, 0, new Car(7, "C42", mercedes));
+    const [rb20, mcl35m, sf23, c42] = await Promise.all([
+        loadCarModel("../../public/assets/cars/RB20.glb", redBull, renderer),
+        loadCarModel("../../public/assets/cars/MCL35M.glb", mclaren, renderer),
+        loadCarModel("../../public/assets/cars/SF23.glb", ferrari, renderer),
+        loadCarModel("../../public/assets/cars/C42.glb", mercedes, renderer),
+    ]);
+
+    let verstappen = new Driver("Max Verstappen", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB20", rb20, redBull));
+    let oscar = new Driver("Oscar Piastri", "pia", 81, "Australia", 7, 0, new Car(81, "MCL35M", mcl35m, mclaren));
+    let hamilton = new Driver("Lewis Hamilton", "ham", 44, "United Kingdom", 3, 0, new Car(44, "SF23", sf23, ferrari));
+    let kimi = new Driver("Kimi Räikkönen", "rak", 7, "Finland", 4, 0, new Car(7, "C42", c42, mercedes));
+
     verstappen.position = 1;
     oscar.position = 2;
     hamilton.position = 3;
     kimi.position = 4;
 
     // Set initial positions for the drivers
-    verstappen.positionOnTrack(initialPositions[verstappen.position]);
-    kimi.positionOnTrack(initialPositions[kimi.position]);
-    oscar.positionOnTrack(initialPositions[oscar.position]);
-    hamilton.positionOnTrack(initialPositions[hamilton.position]);
+    // verstappen.positionOnTrack(initialPositions[verstappen.position]);
+    // kimi.positionOnTrack(initialPositions[kimi.position]);
+    // oscar.positionOnTrack(initialPositions[oscar.position]);
+    // hamilton.positionOnTrack(initialPositions[hamilton.position]);
 
     // Add drivers to the scene
     drivers.push(hamilton, oscar, verstappen, kimi);
@@ -486,18 +496,18 @@ function createDriversAndTeams() {
         globe.tiles.group.add(driver.label);
 
         const lineMaterial = new LineBasicMaterial({ color: 0xffffff });
-        const lineGeometry = new BufferGeometry().setFromPoints([driver.car.mesh.position, driver.car.mesh.position.clone()]);
+        const lineGeometry = new BufferGeometry().setFromPoints([driver.car.car.position, driver.car.car.position.clone()]);
         driver.line = new Line(lineGeometry, lineMaterial);
         globe.tiles.group.add(driver.line);
 
-        globe.tiles.group.add(driver.car.mesh);
+        globe.tiles.group.add(driver.car.car);
     });
 
     renderScoreboard(drivers);
 }
 
-function getRaycastHit(x: number, y: number) {
-    const rayOrigin = new Vector3(x, rayOriginAlt, y);
+function getRaycastHit(x: number, z: number) {
+    const rayOrigin = new Vector3(x, rayOriginAlt, z);
     const rayDirection = new Vector3(0, -1, 0);
     raycaster.set(rayOrigin, rayDirection);
     return raycaster.intersectObject(globe.tiles.group, false)[0];
@@ -620,35 +630,36 @@ function onRender(ts, frame): void {
 
     if (renderer) {
         if (trackCurve && drivers.length > 0) {
-            trackTime += 0.0003;
+            trackTime += 0.0003; //0.0003;
             if (trackTime > 1) trackTime = 0;
 
             // Add null check for trackCurve
             const spacing = 0.05;
 
-            drivers.forEach((driver, index) => {
-                const t = (trackTime - index * spacing + 1) % 1;
-                const pos = trackCurve?.getPointAt(t);
-                if (pos) {
-                    driver.positionOnTrack(pos);
-                    driver.updateLabel(camera, labelOffset);
+            let driver = drivers[0];
+            const t = (trackTime - 0 * spacing + 1) % 1;
+            const pos = trackCurve?.getPointAt(t);
+            const tan = trackCurve?.getTangentAt(t);
 
-                    // const geometry = new SphereGeometry(2, 16, 16);
-                    // const material = new MeshStandardMaterial({ color: 0xffffff });
-                    // let mesh = new Mesh(geometry, material);
-                    // mesh.position.copy(pos);
-
-                    // globe.tiles.group.add(mesh);
-                    // scene.add(mesh);
-
-                    // console.log("Position: " + pos.x);
-                    // console.log("Mesh position: " + mesh.position.x);
+            if (pos && tan) {
+                const posInWorld = globe.tiles.group.localToWorld(pos.clone());
+                const hit = getRaycastHit(posInWorld.x, posInWorld.z);
+                if (hit) {
+                    const normal = getSmoothHitNormal(hit);
+                    pos.y = getHitAltitude(hit, 0);
+                    // console.log(pos.y);
                 }
-            });
+                console.log(globe.tiles.group.localToWorld(pos.clone()));
+                driver.positionOnTrack(pos, tan);
+                // console.log(driver.car.car.position);
+                driver.updateLabel(camera, labelOffset);
+            }
+            // drivers.forEach((driver, index) => {
+            // });
         }
 
         if (currentFollowDriver && trackCurve) {
-            const pos = currentFollowDriver.car.mesh.position.clone().multiplyScalar(globalScale);
+            const pos = currentFollowDriver.car.car.position.clone().multiplyScalar(globalScale);
             const tangent = trackCurve.getTangentAt(trackTime);
             const up = pos.clone().normalize();
             const cameraOffset = tangent.clone().multiplyScalar(-30).add(up.clone().multiplyScalar(15)).multiplyScalar(globalScale);
