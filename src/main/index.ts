@@ -41,7 +41,11 @@ import {
     ArrowHelper,
     Triangle,
     Matrix3,
-    Object3D
+    Object3D,
+    Shape,
+    ExtrudeGeometry,
+    MeshNormalMaterial,
+    PlaneGeometry
 } from "three";
 import { XRButton } from "three/examples/jsm/Addons.js";
 import { Globe } from "../globe";
@@ -51,6 +55,7 @@ import { Driver } from "../models/Driver";
 import { Car } from "../models/Car";
 import CameraControls from "camera-controls";
 import { loadCarModel } from "../utils/modelLoader";
+import { TilesFadePlugin } from "3d-tiles-renderer/plugins";
 
 const subsetOfTHREE = {
     Vector2: Vector2,
@@ -79,7 +84,6 @@ let reticle: Mesh | null = null;
 let hitTestSourceRequested = false;
 let hitTestSource: XRHitTestSource | null = null;
 let lodCameras: PerspectiveCamera[] = [];
-const LOCAL_AXIS = new Vector3(0, 1, 0);
 const globeContainer = new Group();
 const initialPositions: Vector3[] = [];
 const drivers: Driver[] = [];
@@ -105,8 +109,10 @@ let transform;
 
 const centerECEF = new Geodetic(radians(longitude), radians(latitude), 0).toECEF().multiplyScalar(globalScale);
 const cameraUp = centerECEF.clone().normalize();
+const cameraRaycaster = new Raycaster();
+const mouseNormalBuff = new Vector2();
 
-const raycaster = new Raycaster();
+const carRaycaster = new Raycaster();
 
 const rawLLA = [
     [-9.392928078775599, 38.749255151676735, 188],
@@ -219,19 +225,30 @@ function init(): void {
     loadGPXasECEF(gpxUrl).then((points) => {
         if (points.length > 1) {
             console.log("GPX Points loaded:", points.length);
-            trackCurve = new CatmullRomCurve3(points, false); // false = circuito aberto
+            trackCurve = new CatmullRomCurve3(points, true); // false = circuito aberto
         } else {
             console.warn("Nenhum ponto GPX carregado");
         }
 
-        console.log("N points:", points.length);
-        const geometry = new SphereGeometry(2);
-        const material = new MeshStandardMaterial({ color: 0x00ff62 });
-        const sphere = new InstancedMesh(geometry, material, points.length);
-        for (let i = 0; i < points.length; i++) {
-            sphere.setMatrixAt(i, new Matrix4().setPosition(points[i]));
-        }
-        // scene.add(sphere);
+        const roadWidth    = 8;
+        const roadThickness = 0.1;
+        const shape = new Shape();
+        shape.moveTo(-roadWidth/2, 0);
+        shape.lineTo( roadWidth/2, 0);
+        shape.lineTo( roadWidth/2, roadThickness);
+        shape.lineTo(-roadWidth/2, roadThickness);
+        shape.closePath();
+
+        const extrudeSettings = {
+            steps: 200,              // how many segments along the curve
+            bevelEnabled: false,
+            extrudePath: trackCurve
+        };
+        const roadGeo = new ExtrudeGeometry(shape, extrudeSettings);
+        const roadMat  = new MeshNormalMaterial();
+        const roadMesh = new Mesh(roadGeo, roadMat);
+        // globe.tiles.group.add(roadMesh);
+        roadMesh.updateMatrixWorld();
     });
 
     // Camera controls
@@ -336,7 +353,7 @@ function setupLight() {
 }
 
 function setupMainCamera() {
-    camera = new PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.01, 13000);
+    camera = new PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.001, 13000);
     camera.position.copy(new Vector3(0.2, 1.2, 0.5));
     camera.lookAt(new Vector3(0, 0, 0));
     camera.updateProjectionMatrix();
@@ -367,7 +384,10 @@ function setupLODCameras(heightRatio = 2) {
 
 function setupCameraControls() {
     controls = new CameraControls(camera, renderer.domElement);
+    controls.mouseButtons.right = CameraControls.ACTION.OFFSET;
     controls.maxPolarAngle = Math.PI / 2;
+    renderer.domElement.addEventListener('mousedown', (event) => setOrbitPoint(event.clientX, event.clientY));
+    renderer.domElement.addEventListener('touchstart', (event) => setOrbitPoint(event.changedTouches[0].clientX, event.changedTouches[0].clientY));
 }
 
 function setupRecordingFeatures() {
@@ -466,10 +486,10 @@ async function createDriversAndTeams() {
     let mclaren = new Team("McLaren F1 Team", "#FF8700");
 
     const [rb20, mcl35m, sf23, c42] = await Promise.all([
-        loadCarModel("../../public/assets/cars/RB20.glb", redBull, renderer),
-        loadCarModel("../../public/assets/cars/MCL35M.glb", mclaren, renderer),
-        loadCarModel("../../public/assets/cars/SF23.glb", ferrari, renderer),
-        loadCarModel("../../public/assets/cars/C42.glb", mercedes, renderer),
+        loadCarModel("/assets/cars/RB20.glb", redBull, renderer),
+        loadCarModel("/assets/cars/MCL35M.glb", mclaren, renderer),
+        loadCarModel("/assets/cars/SF23.glb", ferrari, renderer),
+        loadCarModel("/assets/cars/C42.glb", mercedes, renderer),
     ]);
 
     let verstappen = new Driver("Max Verstappen", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB20", rb20, redBull));
@@ -509,8 +529,8 @@ async function createDriversAndTeams() {
 function getRaycastHit(x: number, z: number) {
     const rayOrigin = new Vector3(x, rayOriginAlt, z);
     const rayDirection = new Vector3(0, -1, 0);
-    raycaster.set(rayOrigin, rayDirection);
-    return raycaster.intersectObject(globe.tiles.group, false)[0];
+    carRaycaster.set(rayOrigin, rayDirection);
+    return carRaycaster.intersectObject(globe.tiles.group, false)[0];
 }
 
 function getSmoothHitNormal(hit) {
@@ -555,8 +575,8 @@ function getSmoothHitNormal(hit) {
     return interpolated;
 }
 
-function getHitAltitude(hit, compensation = 0.5){
-    return (rayOriginAlt - hit.distance) / scale + compensation * scale;
+function getHitAltitude(hit, compensation = 0){
+    return (rayOriginAlt - hit.distance) + compensation;
 }
 
 function setObjectOnRoad(object: Object3D){
@@ -566,9 +586,27 @@ function setObjectOnRoad(object: Object3D){
     // get hit position, compensate car altitude approx: 0.5 / scale
     // get hit normal
     // apply normal and position
-    //       const q = new THREE.Quaternion().setFromUnitVectors( LOCAL_AXIS, normalWS );
     //       object.quaternion.copy(q);
     //       object.position.copy(hitPointCompensated);
+}
+
+function setOrbitPoint(mouseX, mouseY) {
+	const elRect = renderer.domElement.getBoundingClientRect();
+	const canvasX = mouseX - elRect.left;
+	const canvasY = mouseY - elRect.top;
+
+	mouseNormalBuff.set(
+		(canvasX / elRect.width) * 2.0 - 1.0,
+		((elRect.height - canvasY) / elRect.height) * 2.0 - 1.0
+	);
+
+    camera.updateMatrixWorld();
+	cameraRaycaster.setFromCamera(mouseNormalBuff, camera);
+	const intersections = cameraRaycaster.intersectObject(globe.tiles.group, false);
+
+	if (intersections.length !== 0) {
+		controls.setOrbitPoint(intersections[0].point.x, intersections[0].point.y, intersections[0].point.z);
+	}
 }
 
 function renderScoreboard(drivers: Driver[]): void {
@@ -636,26 +674,26 @@ function onRender(ts, frame): void {
             // Add null check for trackCurve
             const spacing = 0.05;
 
-            let driver = drivers[0];
-            const t = (trackTime - 0 * spacing + 1) % 1;
-            const pos = trackCurve?.getPointAt(t);
-            const tan = trackCurve?.getTangentAt(t);
-
-            if (pos && tan) {
-                const posInWorld = globe.tiles.group.localToWorld(pos.clone());
-                const hit = getRaycastHit(posInWorld.x, posInWorld.z);
-                if (hit) {
-                    const normal = getSmoothHitNormal(hit);
-                    pos.y = getHitAltitude(hit, 0);
-                    // console.log(pos.y);
+            let normal;
+            let pos;
+           
+            drivers.forEach((driver, index) => {
+                const t = (trackTime - index * spacing + 1) % 1;
+                pos = trackCurve?.getPointAt(t);
+                const tan = trackCurve?.getTangentAt(t).normalize();
+                if (pos && tan) {
+                    normal = new Vector3();
+                    globe.tiles.group.localToWorld(pos); // Convert to world coordinates
+                    const hit = getRaycastHit(pos.x, pos.z);
+                    if (hit) {
+                        normal = getSmoothHitNormal(hit);
+                        pos.y = getHitAltitude(hit, 0); // Set new height in world coordinates
+                    }
+                    globe.tiles.group.worldToLocal(pos); // Convert back to geo coordinates                   
+                    driver.positionOnTrack(pos, tan);
+                    driver.updateLabel(camera, labelOffset);
                 }
-                console.log(globe.tiles.group.localToWorld(pos.clone()));
-                driver.positionOnTrack(pos, tan);
-                // console.log(driver.car.car.position);
-                driver.updateLabel(camera, labelOffset);
-            }
-            // drivers.forEach((driver, index) => {
-            // });
+            });
         }
 
         if (currentFollowDriver && trackCurve) {

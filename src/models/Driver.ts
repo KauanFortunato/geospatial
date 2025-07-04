@@ -1,4 +1,4 @@
-import { Vector3, Sprite, Line, PerspectiveCamera } from "three";
+import { Vector3, Sprite, Line, PerspectiveCamera, Quaternion } from "three";
 import { Car } from "./Car";
 import { tan } from "three/tsl";
 
@@ -63,7 +63,7 @@ export class Driver {
     }
   }
 
-  positionOnTrack(posicao: Vector3, tangent: Vector3, normal?: Vector3) {
-    this.car.setPosition(posicao, tangent);
+  positionOnTrack(position: Vector3, tangent: Vector3) {
+    this.car.setPosition(position, tangent);
   }
 }
