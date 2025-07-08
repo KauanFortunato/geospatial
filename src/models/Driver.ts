@@ -1,6 +1,6 @@
-import { Vector3, Sprite, Line, PerspectiveCamera, MeshBasicMaterial, MeshStandardMaterial, SphereGeometry } from "three";
+import { Vector3, Sprite, Line, PerspectiveCamera } from "three";
 import { Car } from "./Car";
-import { vec3 } from "three/tsl";
+import { tan } from "three/tsl";
 
 export class Driver {
   name: string;
@@ -25,7 +25,7 @@ export class Driver {
   }
 
   updateLabel(camera: PerspectiveCamera, offset: Vector3) {
-    const pos = this.car.mesh.position;
+    const pos = this.car.car.position;
     const labelPos = pos.clone().add(offset);
 
     if (this.label) {
@@ -36,7 +36,6 @@ export class Driver {
 
     if (this.line) {
       this.line.geometry.setFromPoints([pos, labelPos]);
-      this.line.updateMatrixWorld();
     }
   }
 
@@ -64,7 +63,7 @@ export class Driver {
     }
   }
 
-  positionOnTrack(posicao: Vector3) {
-    this.car.setPosition(posicao);
+  positionOnTrack(posicao: Vector3, tangent: Vector3) {
+    this.car.setPosition(posicao, tangent);
   }
 }

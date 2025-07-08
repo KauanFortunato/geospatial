@@ -36,7 +36,7 @@ import {
     MathUtils,
     Euler,
     AxesHelper,
-    CameraHelper
+    CameraHelper,
 } from "three";
 import { XRButton } from "three/examples/jsm/Addons.js";
 import { Globe } from "../globe";
@@ -45,6 +45,8 @@ import { Team } from "../models/Team";
 import { Driver } from "../models/Driver";
 import { Car } from "../models/Car";
 import CameraControls from "camera-controls";
+import { loadCarModel } from "../utils/modelLoader";
+import { group } from "console";
 
 const subsetOfTHREE = {
     Vector2: Vector2,
@@ -64,7 +66,8 @@ let controls: CameraControls;
 let globalScale = 1;
 let globe: Globe;
 let renderer: WebGLRenderer;
-let camera: PerspectiveCamera; let scene: Scene;
+let camera: PerspectiveCamera;
+let scene: Scene;
 let trackCurve: CatmullRomCurve3 | null = null;
 let trackTime = 0;
 let currentFollowDriver: Driver | null = null;
@@ -80,7 +83,7 @@ const labelOffset = new Vector3(0, 0, 30);
 
 const showOrigin = true;
 const showLodCamHelpers = true;
-const useClipping = false;
+const useClipping = true;
 const scale = 1 / 1700;
 const longitude = -9.394761567056307; // degrees
 const latitude = 38.75025825516866; // degrees
@@ -103,8 +106,8 @@ const rawLLA = [
 ];
 
 const cameraPositions: Vector3[] = [
-    new Vector3(4914449.702275728, -812735.0475000107, 3970834.0878650616).multiplyScalar(globalScale),
-    new Vector3(4914668.737085846, -813010.9913910049, 3971105.824077781).multiplyScalar(globalScale),
+    new Vector3(-0.16740700758110327, 0.12518355493779795, 0.05968006017702811),
+    new Vector3(-0.16740700758110327, -0.16740700758110327, -0.16740700758110327),
 ];
 
 for (const [lon, lat, alt] of rawLLA) {
@@ -155,46 +158,20 @@ function init(): void {
 
     const transform = enuMatrix.clone().invert();
     globe.tiles.group.applyMatrix4(transform); // Rotate and Position the lat/lon point on group container origin
-    globeContainer.scale.setScalar(scale);  // Scale the group to the desired factor
+    globeContainer.scale.setScalar(scale); // Scale the group to the desired factor
     globeContainer.updateMatrixWorld(true); // Update internal matrix
 
     // Clipping planes of unit by unit, unit = 1m
     const unit = 1;
     const clippingPlanes = [
-        new Plane(new Vector3(unit, 0, 0), unit / 2),  // left
-        new Plane(new Vector3(-unit, 0, 0), unit / 2),  // right
-        new Plane(new Vector3(0, 0, unit), unit / 2),  // front
-        new Plane(new Vector3(0, 0, -unit), unit / 2),  // back
+        new Plane(new Vector3(unit, 0, 0), unit / 2), // left
+        new Plane(new Vector3(-unit, 0, 0), unit / 2), // right
+        new Plane(new Vector3(0, 0, unit), unit / 2), // front
+        new Plane(new Vector3(0, 0, -unit), unit / 2), // back
     ];
-    if (useClipping)
-        renderer.clippingPlanes = clippingPlanes;
+    if (useClipping) renderer.clippingPlanes = clippingPlanes;
 
-    createDriversAndTeams();
-
-    // Create drivers and teams
-    const followContainer = document.getElementById("follow-buttons");
-    drivers.forEach((driver) => {
-        const btn = document.createElement("button");
-        btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
-        btn.addEventListener("click", () => {
-            if (currentFollowDriver === driver) {
-                currentFollowDriver = null;
-                driver.showLabel();
-                driver.showLine();
-                btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
-            } else {
-                currentFollowDriver = driver;
-                currentFollowDriver.hideLabel();
-                currentFollowDriver.hideLine();
-
-                document.querySelectorAll("#follow-buttons button").forEach((b) => {
-                    b.textContent = `Seguir ${b.textContent?.split(" ")[1]}`;
-                });
-                btn.textContent = "Parar de Seguir";
-            }
-        });
-        followContainer?.appendChild(btn);
-    });
+    createDriversAndTeams(); 
 
     window.addEventListener("resize", onWindowResize); // Handle window resize events
 
@@ -220,16 +197,14 @@ function init(): void {
 
     // Camera controls
     document.getElementById("camera-position-1")?.addEventListener("click", () => {
-        // animateCameraTo(cameraPositions[0], cameraUp, centerECEF, 1500);
+        animateCameraTo(cameraPositions[0], cameraUp, centerECEF, 1500);
     });
 
     document.getElementById("camera-position-2")?.addEventListener("click", () => {
-        // animateCameraTo(cameraPositions[1], cameraUp, centerECEF, 1500);
+        animateCameraTo(cameraPositions[1], cameraUp, centerECEF, 1500);
     });
 
-
-    if (showOrigin)
-        scene.add(new AxesHelper(10));
+    if (showOrigin) scene.add(new AxesHelper(10));
 }
 
 function setupGraphicsEngine() {
@@ -239,7 +214,7 @@ function setupGraphicsEngine() {
         stencil: true,
         depth: true,
         alpha: true,
-        logarithmicDepthBuffer: true
+        logarithmicDepthBuffer: true,
     });
     renderer.toneMapping = ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1;
@@ -260,47 +235,44 @@ function setupGraphicsEngine() {
 
 function setupXR() {
     renderer.xr.enabled = true;
-    renderer.xr.addEventListener('sessionend', onSessionEnd);
+    renderer.xr.addEventListener("sessionend", onSessionEnd);
 
     let xrButton = XRButton.createButton(renderer, {
-        requiredFeatures: ['hit-test'],
-        optionalFeatures: []
+        requiredFeatures: ["hit-test"],
+        optionalFeatures: [],
     });
 
-    xrButton.addEventListener('click', onXRSession);
+    xrButton.addEventListener("click", onXRSession);
     document.body.appendChild(xrButton);
 
     const tLoader = new TextureLoader();
-    reticle = new Mesh(
-        new BoxGeometry(9.15 / 10, 6.10 / 10, 0.01).rotateX(-Math.PI / 2),
-        new MeshBasicMaterial({ map: tLoader.load('assets/reticle.png'), transparent: true })
-    );
+    reticle = new Mesh(new BoxGeometry(9.15 / 10, 6.1 / 10, 0.01).rotateX(-Math.PI / 2), new MeshBasicMaterial({ map: tLoader.load("assets/reticle.png"), transparent: true }));
     reticle.matrixAutoUpdate = false;
     reticle.visible = false;
     scene.add(reticle);
 
-    renderer.xr.addEventListener('sessionstart', async () => {
+    renderer.xr.addEventListener("sessionstart", async () => {
         const session = renderer.xr.getSession();
         if (session && session.enabledFeatures) {
             console.log("Granted WebXR Features:", Array.from(session.enabledFeatures));
 
-            if (session.enabledFeatures.includes('hit-test')) {
+            if (session.enabledFeatures.includes("hit-test")) {
                 if (hitTestSourceRequested === false) {
-                    session.requestReferenceSpace('viewer').then(function (referenceSpace) {
+                    session.requestReferenceSpace("viewer").then(function (referenceSpace) {
                         // @ts-ignore
                         session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
                             hitTestSource = source;
                         });
                     });
 
-                    session.addEventListener('end', function () {
+                    session.addEventListener("end", function () {
                         hitTestSource = null;
                         hitTestSourceRequested = false;
                     });
                     hitTestSourceRequested = true;
                 }
             }
-            session.addEventListener('select', onSelect);
+            session.addEventListener("select", onSelect);
         }
     });
 }
@@ -311,15 +283,16 @@ function setupLight() {
 }
 
 function setupMainCamera() {
-    camera = new PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.01, 13000);
-    camera.position.copy(new Vector3(0.2, 1.2, 0.5));
+    camera = new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1 * scale, 13000);
+    // camera.position.copy(new Vector3(0.2, 1.2, 0.5));
+    camera.position.copy(new Vector3(-0.16740700758110327, 0.12518355493779795, 0.05968006017702811));
     camera.lookAt(new Vector3(0, 0, 0));
     camera.updateProjectionMatrix();
 }
 
 function setupLODCameras(heightRatio = 2) {
-    const halfHeight = (lodCamHeight / heightRatio) * Math.tan(MathUtils.degToRad(lodCamFOV) / 2);  // tan45° = 1 → = 350
-    const halfWidth = halfHeight * lodCamAspectRatio;           // rectangular footprint
+    const halfHeight = (lodCamHeight / heightRatio) * Math.tan(MathUtils.degToRad(lodCamFOV) / 2); // tan45° = 1 → = 350
+    const halfWidth = halfHeight * lodCamAspectRatio; // rectangular footprint
 
     for (let i = 0; i < numLodCamCols; i++) {
         for (let j = 0; j < numLodCamRows; j++) {
@@ -405,27 +378,35 @@ function animateCameraTo(targetPos: Vector3, targetUp: Vector3, targetLookAt: Ve
     requestAnimationFrame(update);
 }
 
-function createDriversAndTeams() {
+async function createDriversAndTeams() {
     // Create drivers and teams
     let redBull = new Team("Red Bull Racing", "#1E41FF");
     let mercedes = new Team("Mercedes-AMG Petronas", "#00D2BE");
     let ferrari = new Team("Scuderia Ferrari", "#DC0000");
     let mclaren = new Team("McLaren F1 Team", "#FF8700");
 
-    let verstappen = new Driver("Max Verstappen", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB19", redBull));
-    let oscar = new Driver("Oscar Piastri", "pia", 81, "Australia", 7, 0, new Car(81, "MCL60", mclaren));
-    let hamilton = new Driver("Lewis Hamilton", "ham", 44, "United Kingdom", 3, 0, new Car(44, "W14", ferrari));
-    let kimi = new Driver("Kimi Räikkönen", "rak", 7, "Finland", 4, 0, new Car(7, "C42", mercedes));
+    const [rb20, mcl35m, sf23, c42] = await Promise.all([
+        loadCarModel("../../public/assets/cars/RB20.glb", redBull, renderer),
+        loadCarModel("../../public/assets/cars/MCL35M.glb", mclaren, renderer),
+        loadCarModel("../../public/assets/cars/SF23.glb", ferrari, renderer),
+        loadCarModel("../../public/assets/cars/C42.glb", mercedes, renderer),
+    ]);
+
+    let verstappen = new Driver("Max Verstappen", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB20", rb20, redBull));
+    let oscar = new Driver("Oscar Piastri", "pia", 81, "Australia", 7, 0, new Car(81, "MCL35M", mcl35m, mclaren));
+    let hamilton = new Driver("Lewis Hamilton", "ham", 44, "United Kingdom", 3, 0, new Car(44, "SF23", sf23, ferrari));
+    let kimi = new Driver("Kimi Räikkönen", "rak", 7, "Finland", 4, 0, new Car(7, "C42", c42, mercedes));
+
     verstappen.position = 1;
     oscar.position = 2;
     hamilton.position = 3;
     kimi.position = 4;
 
     // Set initial positions for the drivers
-    verstappen.positionOnTrack(initialPositions[verstappen.position]);
-    kimi.positionOnTrack(initialPositions[kimi.position]);
-    oscar.positionOnTrack(initialPositions[oscar.position]);
-    hamilton.positionOnTrack(initialPositions[hamilton.position]);
+    // verstappen.positionOnTrack(initialPositions[verstappen.position]);
+    // kimi.positionOnTrack(initialPositions[kimi.position]);
+    // oscar.positionOnTrack(initialPositions[oscar.position]);
+    // hamilton.positionOnTrack(initialPositions[hamilton.position]);
 
     // Add drivers to the scene
     drivers.push(hamilton, oscar, verstappen, kimi);
@@ -435,14 +416,50 @@ function createDriversAndTeams() {
         globe.tiles.group.add(driver.label);
 
         const lineMaterial = new LineBasicMaterial({ color: 0xffffff });
-        const lineGeometry = new BufferGeometry().setFromPoints([driver.car.mesh.position, driver.car.mesh.position.clone()]);
+        const lineGeometry = new BufferGeometry().setFromPoints([driver.car.car.position, driver.car.car.position.clone()]);
         driver.line = new Line(lineGeometry, lineMaterial);
         globe.tiles.group.add(driver.line);
 
-        globe.tiles.group.add(driver.car.mesh);
+        globe.tiles.group.add(driver.car.car);
     });
 
     renderScoreboard(drivers);
+
+    const followContainer = document.getElementById("follow-buttons");
+    drivers.forEach((driver) => {
+        const btn = document.createElement("button");
+        btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
+        btn.addEventListener("click", () => {
+            if (currentFollowDriver === driver) {
+                // Parar de seguir o mesmo piloto
+                currentFollowDriver = null;
+                driver.showLabel();
+                driver.showLine();
+                controls.enabled = true;
+                btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
+            } else {
+                // Se já está seguindo outro, reativar a label/linha dele
+                if (currentFollowDriver) {
+                    currentFollowDriver.showLabel();
+                    currentFollowDriver.showLine();
+                }
+
+                currentFollowDriver = driver;
+                currentFollowDriver.hideLabel();
+                currentFollowDriver.hideLine();
+                controls.enabled = false;
+
+                // Atualiza todos os botões
+                document.querySelectorAll("#follow-buttons button").forEach((b) => {
+                    const acr = b.textContent?.split(" ")[1];
+                    b.textContent = `Seguir ${acr}`;
+                });
+
+                btn.textContent = "Parar de Seguir";
+            }
+        });
+        followContainer?.appendChild(btn);
+    });
 }
 
 function renderScoreboard(drivers: Driver[]): void {
@@ -469,9 +486,10 @@ function renderScoreboard(drivers: Driver[]): void {
 }
 
 function onRender(ts, frame): void {
+    // console.log(camera.position);
+
     if (!frame) {
-        if (controls)
-            controls.update(clock.getDelta());
+        if (controls) controls.update(clock.getDelta());
         globe.update();
     }
 
@@ -479,7 +497,7 @@ function onRender(ts, frame): void {
         const referenceSpace = renderer.xr.getReferenceSpace();
         const session = renderer.xr.getSession();
 
-        if (reticle && session?.enabledFeatures?.includes('hit-test')) {
+        if (reticle && session?.enabledFeatures?.includes("hit-test")) {
             if (hitTestSource) {
                 const hitTestResults = frame.getHitTestResults(hitTestSource);
                 if (hitTestResults.length && arPlacingGeomap) {
@@ -496,7 +514,7 @@ function onRender(ts, frame): void {
 
     if (renderer) {
         if (trackCurve && drivers.length > 0) {
-            trackTime += 0.0003;
+            trackTime += 0.0003; //0.0003;
             if (trackTime > 1) trackTime = 0;
 
             // Add null check for trackCurve
@@ -505,36 +523,36 @@ function onRender(ts, frame): void {
             drivers.forEach((driver, index) => {
                 const t = (trackTime - index * spacing + 1) % 1;
                 const pos = trackCurve?.getPointAt(t);
-                if (pos) {
-                    driver.positionOnTrack(pos);
+                const tan = trackCurve?.getTangentAt(t);
+
+                if (pos && tan) {
+                    driver.positionOnTrack(pos, tan);
                     driver.updateLabel(camera, labelOffset);
-
-                    // const geometry = new SphereGeometry(2, 16, 16);
-                    // const material = new MeshStandardMaterial({ color: 0xffffff });
-                    // let mesh = new Mesh(geometry, material);
-                    // mesh.position.copy(pos);
-
-                    // globe.tiles.group.add(mesh);
-                    // scene.add(mesh);
-
-                    // console.log("Position: " + pos.x);
-                    // console.log("Mesh position: " + mesh.position.x);
                 }
             });
         }
 
-        if (currentFollowDriver && trackCurve) {
-            const pos = currentFollowDriver.car.mesh.position.clone().multiplyScalar(globalScale);
-            const tangent = trackCurve.getTangentAt(trackTime);
-            const up = pos.clone().normalize();
-            const cameraOffset = tangent.clone().multiplyScalar(-30).add(up.clone().multiplyScalar(15)).multiplyScalar(globalScale);
-            const cameraPos = pos.clone().add(cameraOffset);
+if (currentFollowDriver) {
+    const car = currentFollowDriver.car.car;
 
-            camera.position.copy(cameraPos);
-            camera.up.copy(up);
-            camera.lookAt(pos.clone().add(tangent.clone().multiplyScalar(10)));
-        }
+    const carPos = car.getWorldPosition(new Vector3());
+    const carQuat = car.getWorldQuaternion(new Quaternion());
 
+    const forward = new Vector3(0, 0, -1).applyQuaternion(carQuat); // direção do carro
+    const worldUp = new Vector3(0, 1, 0); // cima global
+
+    // Distâncias ajustadas para ficar alto e atrás
+    const offsetBehind = forward.clone().multiplyScalar(0.01 * scale); // mais atrás
+    const offsetAbove = worldUp.clone().multiplyScalar(0.65 * scale);    // mais acima
+
+    const cameraPos = carPos.clone().add(offsetBehind).add(offsetAbove);
+    const lookAt = carPos.clone().add(forward.clone().multiplyScalar(0.1 * scale - 1));
+
+    camera.position.copy(cameraPos);
+    camera.up.copy(worldUp); // força cima global para evitar inclinação estranha
+    camera.lookAt(lookAt);
+    camera.updateMatrixWorld();
+}
         renderer.render(scene, camera);
     }
 }
@@ -559,13 +577,13 @@ function onSessionEnd() {
 
 function onSelect(event) {
     if (reticle && reticle.visible) {
-        const clippingPlugin = globe.tiles.getPluginByName('GLOBE_CLIPPING_PLUGIN');
+        const clippingPlugin = globe.tiles.getPluginByName("GLOBE_CLIPPING_PLUGIN");
         reticle.matrix.decompose(globeContainer.position, globeContainer.quaternion, globeContainer.scale);
         globeContainer.scale.setScalar(1 / 1700);
         globeContainer.updateMatrixWorld(true);
 
-        //         const clippingPlanes = clippingPlugin.clippingPlanes.map(plane => plane.clone().applyMatrix4(globeContainer.matrixWorld));
-        //         clippingPlugin.applyClipping(clippingPlanes);
+        // const clippingPlanes = clippingPlugin.clippingPlanes.map(plane => plane.clone().applyMatrix4(globeContainer.matrixWorld));
+        // clippingPlugin.applyClipping(clippingPlanes);
 
         // const planeHelpers = clippingPlanes.map(p => new PlaneHelper(p, 1, 0x00ff00));
         // planeHelpers.forEach(helper => scene.add(helper));
