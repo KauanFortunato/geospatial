@@ -45,7 +45,8 @@ import {
     Shape,
     ExtrudeGeometry,
     MeshNormalMaterial,
-    PlaneGeometry
+    PlaneGeometry,
+    BufferAttribute
 } from "three";
 import { XRButton } from "three/examples/jsm/Addons.js";
 import { Globe } from "../globe";
@@ -89,7 +90,6 @@ const initialPositions: Vector3[] = [];
 const drivers: Driver[] = [];
 const labelOffset = new Vector3(0, 0, 30);
 
-
 let recorder;
 const enableRecordingFeatures = false;
 const showOrigin = false;
@@ -131,6 +131,62 @@ for (const [lon, lat, alt] of rawLLA) {
     const geo = new Geodetic(radians(lon), radians(lat), alt);
     initialPositions.push(geo.toECEF());
 }
+
+// Catmullrom
+const t: Vector3[] = [];
+const n: Vector3[] = [];
+const b: Vector3[] = [];
+
+const ls = 4800; // length segments
+const lss = ls + 1;
+
+let curvePoints: Vector3[] = [];
+
+declare module 'three' {
+  interface Quaternion {
+    setFromBasis(e1: Vector3, e2: Vector3, e3: Vector3): this;
+  }
+}
+
+Quaternion.prototype.setFromBasis = function (e1: Vector3, e2: Vector3, e3: Vector3) {
+  const m11 = e1.x, m12 = e1.y, m13 = e1.z,
+        m21 = e2.x, m22 = e2.y, m23 = e2.z,
+        m31 = e3.x, m32 = e3.y, m33 = e3.z,
+        trace = m11 + m22 + m33;
+
+  if (trace > 0) {
+    const s = 0.5 / Math.sqrt(trace + 1.0);
+    
+    this._w = 0.25 / s;
+    this._x = -(m32 - m23) * s;
+    this._y = -(m13 - m31) * s;
+    this._z = -(m21 - m12) * s;
+  } else if (m11 > m22 && m11 > m33) {
+    const s = 2.0 * Math.sqrt(1.0 + m11 - m22 - m33);
+    
+    this._w = (m32 - m23) / s;
+    this._x = -0.25 * s;
+    this._y = -(m12 + m21) / s;
+    this._z = -(m13 + m31) / s;
+  } else if (m22 > m33) {
+    const s = 2.0 * Math.sqrt(1.0 + m22 - m11 - m33);
+    
+    this._w = (m13 - m31) / s;
+    this._x = -(m12 + m21) / s;
+    this._y = -0.25 * s;
+    this._z = -(m23 + m32) / s;
+  } else {
+    const s = 2.0 * Math.sqrt(1.0 + m33 - m11 - m22);
+    
+    this._w = (m21 - m12) / s;
+    this._x = -(m13 + m31) / s;
+    this._y = -(m23 + m32) / s;
+    this._z = -0.25 * s;
+  }
+
+  this._onChangeCallback();
+  return this;
+};
 
 async function loadGPXasECEF(url: string): Promise<Vector3[]> {
     const res = await fetch(url);
@@ -218,37 +274,124 @@ function init(): void {
         followContainer?.appendChild(btn);
     });
 
-    window.addEventListener("resize", onWindowResize); // Handle window resize events
+    window.addEventListener("resize", onWindowResize); // Handle window resize events    
 
     // Load GPX data
     const gpxUrl = new URL("./estoril-peter-auto.gpx", import.meta.url).href;
     loadGPXasECEF(gpxUrl).then((points) => {
         if (points.length > 1) {
             console.log("GPX Points loaded:", points.length);
-            trackCurve = new CatmullRomCurve3(points, true); // false = circuito aberto
+            trackCurve = new CatmullRomCurve3(points, false); // false = circuito aberto
+                
+            for (let i = 0; i <= ls; i++) {
+               curvePoints.push(trackCurve.getPoint(i / ls));
+            }
+
+            let tangent;
+            const normal = new Vector3( );
+            const binormal = new Vector3( 0, 1, 0 );
+            
+            for ( let j = 0; j < lss; j ++ ) {
+
+                // to the points
+                
+                tangent = trackCurve.getTangent(  j / ls );
+                t.push( tangent.clone( ).normalize() );
+                
+                normal.crossVectors( tangent, binormal );
+                
+                normal.y = 0; // to prevent lateral slope of the road
+                
+                n.push( normal.clone( ).normalize() );
+                
+                binormal.crossVectors( normal, tangent ); // new binormal
+                b.push( binormal.clone( ).normalize() );	
+                
+            }
+
         } else {
             console.warn("Nenhum ponto GPX carregado");
         }
 
-        const roadWidth    = 8;
-        const roadThickness = 0.1;
-        const shape = new Shape();
-        shape.moveTo(-roadWidth/2, 0);
-        shape.lineTo( roadWidth/2, 0);
-        shape.lineTo( roadWidth/2, roadThickness);
-        shape.lineTo(-roadWidth/2, roadThickness);
-        shape.closePath();
+        // Road
+        {
+            const roadWidth = 8;
+            const halfWidth = roadWidth / 2;
+            const dw = [-halfWidth, -halfWidth * 0.6, -0.1, 0.1, halfWidth * 0.6, halfWidth]; // largura da pista dividida
 
-        const extrudeSettings = {
-            steps: 200,              // how many segments along the curve
-            bevelEnabled: false,
-            extrudePath: trackCurve
-        };
-        const roadGeo = new ExtrudeGeometry(shape, extrudeSettings);
-        const roadMat  = new MeshNormalMaterial();
-        const roadMesh = new Mesh(roadGeo, roadMat);
-        // globe.tiles.group.add(roadMesh);
-        roadMesh.updateMatrixWorld();
+            const ws = dw.length - 1;
+            const wss = ws + 1;
+
+            const vertices = new Float32Array(lss * wss * 3);
+            const indices = new Uint32Array(ls * ws * 6);
+            let vIdx = 0;
+
+            for (let j = 0; j < lss; j++) {
+                for (let i = 0; i < wss; i++) {
+                    const offset = dw[i];
+                    const base = curvePoints[j];
+                    const nx = n[j].x, nz = n[j].z;
+                    const x = base.x + offset * nx;
+                    const y = base.y;
+                    const z = base.z + offset * nz;
+
+                    vertices[vIdx++] = x;
+                    vertices[vIdx++] = y;
+                    vertices[vIdx++] = z;
+                }
+            }
+
+            let iIdx = 0;
+            for (let j = 0; j < ls; j++) {
+                for (let i = 0; i < ws; i++) {
+                    const a = j * wss + i;
+                    const b = (j + 1) * wss + i;
+                    const c = (j + 1) * wss + (i + 1);
+                    const d = j * wss + (i + 1);
+
+                    indices[iIdx++] = a;
+                    indices[iIdx++] = b;
+                    indices[iIdx++] = c;
+
+                    indices[iIdx++] = a;
+                    indices[iIdx++] = c;
+                    indices[iIdx++] = d;
+                }
+            }
+
+            const geom = new BufferGeometry();
+            geom.setAttribute("position", new BufferAttribute(vertices, 3));
+            geom.setIndex(new BufferAttribute(indices, 1));
+            geom.computeVertexNormals();
+
+            const roadMat = new MeshStandardMaterial({ color: 0xfcba03 });
+            const roadMesh = new Mesh(geom, roadMat);
+            // globe.tiles.group.add(roadMesh);
+            roadMesh.updateMatrixWorld();
+            
+            // Road2
+            {
+                const roadThickness = 0.1;
+                const shape = new Shape();
+                shape.moveTo(-roadWidth/2, 0);
+                shape.lineTo( roadWidth/2, 0);
+                shape.lineTo( roadWidth/2, roadThickness);
+                shape.lineTo(-roadWidth/2, roadThickness);
+                shape.closePath();
+
+                const extrudeSettings = {
+                    steps: ls,              // how many segments along the curve
+                    bevelEnabled: false,
+                    extrudePath: trackCurve
+                };
+                const roadGeo = new ExtrudeGeometry(shape, extrudeSettings);
+                const roadMat  = new MeshNormalMaterial();
+                const roadMesh2 = new Mesh(roadGeo, roadMat);
+                // globe.tiles.group.add(roadMesh2);
+                roadMesh2.updateMatrixWorld();
+            }
+        }
+
     });
 
     // Camera controls
@@ -353,7 +496,7 @@ function setupLight() {
 }
 
 function setupMainCamera() {
-    camera = new PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.001, 13000);
+    camera = new PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.001 * scale, 13000);
     camera.position.copy(new Vector3(0.2, 1.2, 0.5));
     camera.lookAt(new Vector3(0, 0, 0));
     camera.updateProjectionMatrix();
@@ -676,24 +819,41 @@ function onRender(ts, frame): void {
 
             let normal;
             let pos;
-           
+            let lastQuaternions: Quaternion[] = [];
+
             drivers.forEach((driver, index) => {
-                const t = (trackTime - index * spacing + 1) % 1;
-                pos = trackCurve?.getPointAt(t);
-                const tan = trackCurve?.getTangentAt(t).normalize();
-                if (pos && tan) {
+                if (!trackCurve || curvePoints.length === 0 || t.length === 0 || n.length === 0 || b.length === 0) {
+                    return;
+                }
+
+                const spacing = 30;
+                const idx = Math.max(0, Math.min(ls, Math.floor((trackTime * ls - index * spacing + ls) % ls)));
+
+                const pos = curvePoints[idx].clone();
+                if (pos) {
                     normal = new Vector3();
                     globe.tiles.group.localToWorld(pos); // Convert to world coordinates
                     const hit = getRaycastHit(pos.x, pos.z);
                     if (hit) {
-                        normal = getSmoothHitNormal(hit);
+                        // normal = getSmoothHitNormal(hit);
                         pos.y = getHitAltitude(hit, 0); // Set new height in world coordinates
                     }
                     globe.tiles.group.worldToLocal(pos); // Convert back to geo coordinates                   
-                    driver.positionOnTrack(pos, tan);
-                    driver.updateLabel(camera, labelOffset);
                 }
+
+                const tangent = t[idx];
+                const bin = b[idx];
+                const norm = n[idx];
+
+                pos.x += norm.x;
+                // pos.y += norm.y;
+                pos.z += norm.z;
+                
+                // pos.y = driver.car.altFilter.process(pos.y);
+                driver.positionOnTrack(tangent, bin, norm, pos);
+                driver.updateLabel(camera, labelOffset);
             });
+
         }
 
         if (currentFollowDriver && trackCurve) {

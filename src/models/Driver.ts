@@ -63,7 +63,7 @@ export class Driver {
     }
   }
 
-  positionOnTrack(position: Vector3, tangent: Vector3) {
-    this.car.setPosition(position, tangent);
+  positionOnTrack(tangent: Vector3, binormal: Vector3, normal: Vector3, position: Vector3) {
+    this.car.setPosition(tangent, binormal, normal, position);
   }
 }
