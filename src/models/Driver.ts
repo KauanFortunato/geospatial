@@ -1,4 +1,4 @@
-import { Vector3, Sprite, Line, PerspectiveCamera } from "three";
+import { Vector3, Sprite, Line, PerspectiveCamera, Quaternion } from "three";
 import { Car } from "./Car";
 import { tan } from "three/tsl";
 
@@ -13,8 +13,9 @@ export class Driver {
   car: Car;
   label?: Sprite;
   line?: Line;
+  camera?: PerspectiveCamera;
 
-  constructor(nome: string, acronym: string, driverNumber: number, nationality: string, position: number, points: number, car: Car) {
+  constructor(nome: string, acronym: string, driverNumber: number, nationality: string, position: number, points: number, car: Car, camera?: PerspectiveCamera) {
     this.name = nome;
     this.acronym = acronym;
     this.driverNumber = driverNumber;
@@ -22,6 +23,11 @@ export class Driver {
     this.position = position;
     this.points = points;
     this.car = car;
+    this.camera = camera;
+    this.car.car.add(this.camera);
+    if (this.camera) {
+      this.camera.name = nome;
+  }
   }
 
   updateLabel(camera: PerspectiveCamera, offset: Vector3) {
@@ -63,7 +69,7 @@ export class Driver {
     }
   }
 
-  positionOnTrack(posicao: Vector3, tangent: Vector3) {
-    this.car.setPosition(posicao, tangent);
+  positionOnTrack(position: Vector3, tangent: Vector3) {
+    this.car.setPosition(position, tangent);
   }
 }

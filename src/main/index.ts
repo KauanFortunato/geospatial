@@ -37,8 +37,18 @@ import {
     Euler,
     AxesHelper,
     CameraHelper,
+    Color,
+    ArrowHelper,
+    Triangle,
+    Matrix3,
+    Object3D,
+    Shape,
+    ExtrudeGeometry,
+    MeshNormalMaterial,
+    PlaneGeometry,
+    Camera
 } from "three";
-import { XRButton } from "three/examples/jsm/Addons.js";
+import { XRButton, VRButton } from "three/examples/jsm/Addons.js";
 import { Globe } from "../globe";
 import { Geodetic, radians } from "@takram/three-geospatial";
 import { Team } from "../models/Team";
@@ -46,7 +56,7 @@ import { Driver } from "../models/Driver";
 import { Car } from "../models/Car";
 import CameraControls from "camera-controls";
 import { loadCarModel } from "../utils/modelLoader";
-import { group } from "console";
+import { TilesFadePlugin } from "3d-tiles-renderer/plugins";
 
 const subsetOfTHREE = {
     Vector2: Vector2,
@@ -66,7 +76,8 @@ let controls: CameraControls;
 let globalScale = 1;
 let globe: Globe;
 let renderer: WebGLRenderer;
-let camera: PerspectiveCamera;
+let camera: PerspectiveCamera; 
+let rendererCamera: Camera; 
 let scene: Scene;
 let trackCurve: CatmullRomCurve3 | null = null;
 let trackTime = 0;
@@ -80,10 +91,15 @@ const globeContainer = new Group();
 const initialPositions: Vector3[] = [];
 const drivers: Driver[] = [];
 const labelOffset = new Vector3(0, 0, 30);
+let cockpitView = false;
+let cockpitBtn: HTMLButtonElement;
+let xrRig: Group;
 
-const showOrigin = true;
-const showLodCamHelpers = true;
-const useClipping = true;
+let recorder;
+const enableRecordingFeatures = false;
+const showOrigin = false;
+const showLodCamHelpers = false;
+const useClipping = false;
 const scale = 1 / 1700;
 const longitude = -9.394761567056307; // degrees
 const latitude = 38.75025825516866; // degrees
@@ -92,10 +108,16 @@ const numLodCamRows = 1;
 const lodCamFOV = 155;
 const lodCamHeight = 350;
 const lodCamAspectRatio = 1;
+const rayOriginAlt = 10000;
 const clock = new Clock();
+let transform;
 
 const centerECEF = new Geodetic(radians(longitude), radians(latitude), 0).toECEF().multiplyScalar(globalScale);
 const cameraUp = centerECEF.clone().normalize();
+const cameraRaycaster = new Raycaster();
+const mouseNormalBuff = new Vector2();
+
+const carRaycaster = new Raycaster();
 
 const rawLLA = [
     [-9.392928078775599, 38.749255151676735, 188],
@@ -106,14 +128,54 @@ const rawLLA = [
 ];
 
 const cameraPositions: Vector3[] = [
-    new Vector3(-0.16740700758110327, 0.12518355493779795, 0.05968006017702811),
-    new Vector3(-0.16740700758110327, -0.16740700758110327, -0.16740700758110327),
+    new Vector3(4914449.702275728, -812735.0475000107, 3970834.0878650616).multiplyScalar(globalScale),
+    new Vector3(4914668.737085846, -813010.9913910049, 3971105.824077781).multiplyScalar(globalScale),
 ];
 
 for (const [lon, lat, alt] of rawLLA) {
     const geo = new Geodetic(radians(lon), radians(lat), alt);
     initialPositions.push(geo.toECEF());
 }
+
+Quaternion.prototype.setFromBasis = function (e1: Vector3, e2: Vector3, e3: Vector3) {
+  const m11 = e1.x, m12 = e1.y, m13 = e1.z,
+        m21 = e2.x, m22 = e2.y, m23 = e2.z,
+        m31 = e3.x, m32 = e3.y, m33 = e3.z,
+        trace = m11 + m22 + m33;
+
+  if (trace > 0) {
+    const s = 0.5 / Math.sqrt(trace + 1.0);
+    
+    this._w = 0.25 / s;
+    this._x = -(m32 - m23) * s;
+    this._y = -(m13 - m31) * s;
+    this._z = -(m21 - m12) * s;
+  } else if (m11 > m22 && m11 > m33) {
+    const s = 2.0 * Math.sqrt(1.0 + m11 - m22 - m33);
+    
+    this._w = (m32 - m23) / s;
+    this._x = -0.25 * s;
+    this._y = -(m12 + m21) / s;
+    this._z = -(m13 + m31) / s;
+  } else if (m22 > m33) {
+    const s = 2.0 * Math.sqrt(1.0 + m22 - m11 - m33);
+    
+    this._w = (m13 - m31) / s;
+    this._x = -(m12 + m21) / s;
+    this._y = -0.25 * s;
+    this._z = -(m23 + m32) / s;
+  } else {
+    const s = 2.0 * Math.sqrt(1.0 + m33 - m11 - m22);
+    
+    this._w = (m21 - m12) / s;
+    this._x = -(m13 + m31) / s;
+    this._y = -(m23 + m32) / s;
+    this._z = -0.25 * s;
+  }
+
+  this._onChangeCallback();
+  return this;
+};
 
 async function loadGPXasECEF(url: string): Promise<Vector3[]> {
     const res = await fetch(url);
@@ -135,7 +197,7 @@ async function loadGPXasECEF(url: string): Promise<Vector3[]> {
         points.push(geo.toECEF());
     });
 
-    console.log("GPX Points:", points.length, points);
+    // console.log("GPX Points:", points.length, points);
     return points;
 }
 
@@ -147,6 +209,9 @@ function init(): void {
     setupLODCameras(); // Setup LOD cameras - Hires LOD Camera force tiles to load at full resolution & detail.
     setupCameraControls();
 
+    if (enableRecordingFeatures)
+        setupRecordingFeatures();
+
     // Setup georeferenced globe
     globe = new Globe(scene, lodCameras, renderer, true);
     globeContainer.add(globe.tiles.group);
@@ -156,55 +221,97 @@ function init(): void {
     globe.tiles.ellipsoid.getEastNorthUpFrame(MathUtils.degToRad(latitude), MathUtils.degToRad(longitude), enuMatrix);
     enuMatrix.multiply(new Matrix4().makeRotationFromEuler(new Euler(Math.PI / 2, Math.PI / 2, 0)));
 
-    const transform = enuMatrix.clone().invert();
+    transform = enuMatrix.clone().invert();
     globe.tiles.group.applyMatrix4(transform); // Rotate and Position the lat/lon point on group container origin
-    globeContainer.scale.setScalar(scale); // Scale the group to the desired factor
+    globeContainer.scale.setScalar(scale);  // Scale the group to the desired factor
     globeContainer.updateMatrixWorld(true); // Update internal matrix
 
     // Clipping planes of unit by unit, unit = 1m
-    const unit = 1;
+    const unit = 0.9;
     const clippingPlanes = [
-        new Plane(new Vector3(unit, 0, 0), unit / 2), // left
-        new Plane(new Vector3(-unit, 0, 0), unit / 2), // right
-        new Plane(new Vector3(0, 0, unit), unit / 2), // front
-        new Plane(new Vector3(0, 0, -unit), unit / 2), // back
+        new Plane(new Vector3(unit, 0, 0), unit / 2),  // left
+        new Plane(new Vector3(-unit, 0, 0), unit / 2),  // right
+        new Plane(new Vector3(0, 0, unit), unit / 2),  // front
+        new Plane(new Vector3(0, 0, -unit), unit / 2),  // back
     ];
-    if (useClipping) renderer.clippingPlanes = clippingPlanes;
+    if (useClipping)
+        renderer.clippingPlanes = clippingPlanes;
 
-    createDriversAndTeams(); 
+    createDriversAndTeams();
 
-    window.addEventListener("resize", onWindowResize); // Handle window resize events
+    window.addEventListener("resize", onWindowResize); // Handle window resize events    
+
+    cockpitBtn = document.createElement("button");
+    cockpitBtn.textContent = "Entrar no Cockpit";
+    cockpitBtn.style.position = "absolute";
+    cockpitBtn.style.bottom = "10px";
+    cockpitBtn.style.right = "10px";
+    cockpitBtn.style.padding = "10px 16px";
+    cockpitBtn.style.fontSize = "14px";
+    cockpitBtn.style.zIndex = "999";
+    cockpitBtn.style.display = "none"; // começa invisível
+    document.body.appendChild(cockpitBtn);
+
+    cockpitBtn.addEventListener("click", () => {
+        cockpitView = !cockpitView;
+        cockpitBtn.textContent = cockpitView ? "Sair do Cockpit" : "Entrar no Cockpit";
+    });
 
     // Load GPX data
     const gpxUrl = new URL("./estoril-peter-auto.gpx", import.meta.url).href;
     loadGPXasECEF(gpxUrl).then((points) => {
         if (points.length > 1) {
-            console.log("GPX Points loaded:", points.length);
-            trackCurve = new CatmullRomCurve3(points, false); // false = circuito aberto
+            // console.log("GPX Points loaded:", points.length);
+            // const flatPoints = points.map(p => {
+            //     const local = p.clone().applyMatrix4(transform); // ENU
+            //     local.y = 0;
+            //     return local;
+            // });
+
+            // trackCurve = new CatmullRomCurve3(flatPoints, true);
+
+            trackCurve = new CatmullRomCurve3(points, true); // false = circuito aberto
         } else {
             console.warn("Nenhum ponto GPX carregado");
         }
 
-        console.log("N points:", points.length);
-        const geometry = new SphereGeometry(2);
-        const material = new MeshStandardMaterial({ color: 0x00ff62 });
-        const sphere = new InstancedMesh(geometry, material, points.length);
-        for (let i = 0; i < points.length; i++) {
-            sphere.setMatrixAt(i, new Matrix4().setPosition(points[i]));
-        }
-        // scene.add(sphere);
+        const roadWidth     = 8;
+        const roadThickness = 0.1;
+        const shape = new Shape();
+        shape.moveTo(-roadWidth/2, 0);
+        shape.lineTo( roadWidth/2, 0);
+        shape.lineTo( roadWidth/2, roadThickness);
+        shape.lineTo(-roadWidth/2, roadThickness);
+        shape.closePath();
+
+        const extrudeSettings = {
+            steps: 200,              // how many segments along the curve
+            bevelEnabled: false,
+            extrudePath: trackCurve
+        };
+        const roadGeo = new ExtrudeGeometry(shape, extrudeSettings);
+        const roadMat  = new MeshNormalMaterial();
+        const roadMesh = new Mesh(roadGeo, roadMat);
+        // globe.tiles.group.add(roadMesh);
+        roadMesh.updateMatrixWorld();
     });
 
     // Camera controls
     document.getElementById("camera-position-1")?.addEventListener("click", () => {
-        animateCameraTo(cameraPositions[0], cameraUp, centerECEF, 1500);
+        // animateCameraTo(cameraPositions[0], cameraUp, centerECEF, 1500);
+
+        if(enableRecordingFeatures)
+            recorder.start();
     });
 
     document.getElementById("camera-position-2")?.addEventListener("click", () => {
-        animateCameraTo(cameraPositions[1], cameraUp, centerECEF, 1500);
+        // animateCameraTo(cameraPositions[1], cameraUp, centerECEF, 1500);
+        if(enableRecordingFeatures)
+            recorder.stop();
     });
 
-    if (showOrigin) scene.add(new AxesHelper(10));
+    if (showOrigin)
+        scene.add(new AxesHelper(10));
 }
 
 function setupGraphicsEngine() {
@@ -213,8 +320,9 @@ function setupGraphicsEngine() {
         antialias: true,
         stencil: true,
         depth: true,
-        alpha: true,
+        alpha: !enableRecordingFeatures,
         logarithmicDepthBuffer: true,
+        preserveDrawingBuffer: enableRecordingFeatures
     });
     renderer.toneMapping = ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1;
@@ -228,51 +336,67 @@ function setupGraphicsEngine() {
     if (webContainer) {
         webContainer.appendChild(renderer.domElement);
     }
+    
     scene = new Scene();
+    if (enableRecordingFeatures)
+        scene.background = new Color().setHex(0x00FF00);
 
     renderer.setAnimationLoop(onRender);
 }
 
 function setupXR() {
     renderer.xr.enabled = true;
-    renderer.xr.addEventListener("sessionend", onSessionEnd);
+    renderer.xr.addEventListener('sessionend', onSessionEnd);
 
     let xrButton = XRButton.createButton(renderer, {
-        requiredFeatures: ["hit-test"],
-        optionalFeatures: [],
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: []
     });
 
-    xrButton.addEventListener("click", onXRSession);
-    document.body.appendChild(xrButton);
+    let vrButton = VRButton.createButton(renderer, {
+        requiredFeatures: []
+    })
+
+    renderer.xr.addEventListener('sessionstart', onVRSession);
+
+    xrButton.addEventListener('click', onXRSession);
+    // document.body.appendChild(xrButton);
+
+    // xrButton.addEventListener('click', onVRSession);
+    document.body.appendChild(vrButton);
+
 
     const tLoader = new TextureLoader();
-    reticle = new Mesh(new BoxGeometry(9.15 / 10, 6.1 / 10, 0.01).rotateX(-Math.PI / 2), new MeshBasicMaterial({ map: tLoader.load("assets/reticle.png"), transparent: true }));
+    reticle = new Mesh(
+        new BoxGeometry(9.15 / 10, 6.10 / 10, 0.01).rotateX(-Math.PI / 2),
+        new MeshBasicMaterial({ map: tLoader.load('assets/reticle.png'), transparent: true })
+    );
     reticle.matrixAutoUpdate = false;
     reticle.visible = false;
     scene.add(reticle);
 
-    renderer.xr.addEventListener("sessionstart", async () => {
+    renderer.xr.addEventListener('sessionstart', async () => {
         const session = renderer.xr.getSession();
         if (session && session.enabledFeatures) {
             console.log("Granted WebXR Features:", Array.from(session.enabledFeatures));
 
-            if (session.enabledFeatures.includes("hit-test")) {
+            if (session.enabledFeatures.includes('hit-test')) {
                 if (hitTestSourceRequested === false) {
-                    session.requestReferenceSpace("viewer").then(function (referenceSpace) {
+                    session.requestReferenceSpace('viewer').then(function (referenceSpace) {
                         // @ts-ignore
                         session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
                             hitTestSource = source;
                         });
                     });
 
-                    session.addEventListener("end", function () {
+                    session.addEventListener('end', function () {
                         hitTestSource = null;
                         hitTestSourceRequested = false;
                     });
                     hitTestSourceRequested = true;
                 }
             }
-            session.addEventListener("select", onSelect);
+            session.addEventListener('select', onSelect);
         }
     });
 }
@@ -283,16 +407,22 @@ function setupLight() {
 }
 
 function setupMainCamera() {
-    camera = new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1 * scale, 13000);
-    // camera.position.copy(new Vector3(0.2, 1.2, 0.5));
-    camera.position.copy(new Vector3(-0.16740700758110327, 0.12518355493779795, 0.05968006017702811));
+    camera = new PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.001 * scale, 13000);
+    camera.position.copy(new Vector3(0.2, 1.2, 0.5));
     camera.lookAt(new Vector3(0, 0, 0));
     camera.updateProjectionMatrix();
+    camera.name = 'Main Camera';
+    rendererCamera = camera;
+    
+    xrRig = new Group();
+    xrRig.name = "xrRig";
+    scene.add(xrRig);
+    xrRig.add(camera);
 }
 
 function setupLODCameras(heightRatio = 2) {
-    const halfHeight = (lodCamHeight / heightRatio) * Math.tan(MathUtils.degToRad(lodCamFOV) / 2); // tan45° = 1 → = 350
-    const halfWidth = halfHeight * lodCamAspectRatio; // rectangular footprint
+    const halfHeight = (lodCamHeight / heightRatio) * Math.tan(MathUtils.degToRad(lodCamFOV) / 2);  // tan45° = 1 → = 350
+    const halfWidth = halfHeight * lodCamAspectRatio;           // rectangular footprint
 
     for (let i = 0; i < numLodCamCols; i++) {
         for (let j = 0; j < numLodCamRows; j++) {
@@ -315,7 +445,38 @@ function setupLODCameras(heightRatio = 2) {
 
 function setupCameraControls() {
     controls = new CameraControls(camera, renderer.domElement);
+    controls.mouseButtons.right = CameraControls.ACTION.OFFSET;
     controls.maxPolarAngle = Math.PI / 2;
+    renderer.domElement.addEventListener('mousedown', (event) => setOrbitPoint(event.clientX, event.clientY));
+    renderer.domElement.addEventListener('touchstart', (event) => setOrbitPoint(event.changedTouches[0].clientX, event.changedTouches[0].clientY));
+}
+
+function setupRecordingFeatures() {
+    const stream = renderer.domElement.captureStream(30);
+
+    // Using a WebM codec that supports alpha (VP8 or VP9)
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm;codecs=vp8';
+    const chunks: BlobPart[] = [];
+    recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5_000_000 });
+
+    recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size) chunks.push(e.data);
+    };
+
+    recorder.onstop = () => {
+        // Assemble the final WebM blob
+        const blob = new Blob(chunks, { type: mimeType });
+        const url = URL.createObjectURL(blob);
+
+        // Automatically download the content
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'transparent_capture.webm';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
 }
 
 function createDriverLabel(text: string, color: string): Sprite {
@@ -348,7 +509,7 @@ function animateCameraTo(targetPos: Vector3, targetUp: Vector3, targetLookAt: Ve
     const startPos = camera.position.clone();
     const startUp = camera.up.clone();
     const startQuat = camera.quaternion.clone();
-
+    
     // Criar uma câmera temporária para calcular a rotação final
     const tempCam = camera.clone();
     tempCam.position.copy(targetPos);
@@ -386,16 +547,16 @@ async function createDriversAndTeams() {
     let mclaren = new Team("McLaren F1 Team", "#FF8700");
 
     const [rb20, mcl35m, sf23, c42] = await Promise.all([
-        loadCarModel("../../public/assets/cars/RB20.glb", redBull, renderer),
-        loadCarModel("../../public/assets/cars/MCL35M.glb", mclaren, renderer),
-        loadCarModel("../../public/assets/cars/SF23.glb", ferrari, renderer),
-        loadCarModel("../../public/assets/cars/C42.glb", mercedes, renderer),
+        loadCarModel("/assets/cars/RB20.glb", redBull, renderer),
+        loadCarModel("/assets/cars/MCL35M.glb", mclaren, renderer),
+        loadCarModel("/assets/cars/SF23.glb", ferrari, renderer),
+        loadCarModel("/assets/cars/C42.glb", mercedes, renderer),
     ]);
 
-    let verstappen = new Driver("Max Verstappen", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB20", rb20, redBull));
-    let oscar = new Driver("Oscar Piastri", "pia", 81, "Australia", 7, 0, new Car(81, "MCL35M", mcl35m, mclaren));
-    let hamilton = new Driver("Lewis Hamilton", "ham", 44, "United Kingdom", 3, 0, new Car(44, "SF23", sf23, ferrari));
-    let kimi = new Driver("Kimi Räikkönen", "rak", 7, "Finland", 4, 0, new Car(7, "C42", c42, mercedes));
+    let verstappen = new Driver("Max Verstappen", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB20", rb20, redBull),  new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000));
+    let oscar = new Driver("Oscar Piastri", "pia", 81, "Australia", 7, 0, new Car(81, "MCL35M", mcl35m, mclaren),  new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000));
+    let hamilton = new Driver("Lewis Hamilton", "ham", 44, "United Kingdom", 3, 0, new Car(44, "SF23", sf23, ferrari),  new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000));
+    let kimi = new Driver("Kimi Räikkönen", "rak", 7, "Finland", 4, 0, new Car(7, "C42", c42, mercedes),  new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000));
 
     verstappen.position = 1;
     oscar.position = 2;
@@ -462,6 +623,89 @@ async function createDriversAndTeams() {
     });
 }
 
+function getRaycastHit(x: number, z: number) {
+    const rayOrigin = new Vector3(x, rayOriginAlt, z);
+    const rayDirection = new Vector3(0, -1, 0);
+    carRaycaster.set(rayOrigin, rayDirection);
+    return carRaycaster.intersectObject(globe.tiles.group, false)[0];
+}
+
+function getSmoothHitNormal(hit) {
+    const { face, object, point } = hit;
+    const geom = object.geometry;
+    const posAttr = geom.attributes.position;
+    let normAttr = geom.attributes.normal;
+
+    // ensure normals exist
+    if (!normAttr) {
+        geom.computeVertexNormals();
+        normAttr = geom.attributes.normal;
+    }
+
+    // 1) pull the triangle’s three vertex positions
+    const vA = new Vector3().fromBufferAttribute(posAttr, face.a);
+    const vB = new Vector3().fromBufferAttribute(posAttr, face.b);
+    const vC = new Vector3().fromBufferAttribute(posAttr, face.c);
+
+    // 2) compute barycentric coords of the hit point
+    const bary = new Vector3();
+    Triangle.getBarycoord(point, vA, vB, vC, bary);
+
+    // 3) pull the three vertex normals
+    const nA = new Vector3().fromBufferAttribute(normAttr, face.a);
+    const nB = new Vector3().fromBufferAttribute(normAttr, face.b);
+    const nC = new Vector3().fromBufferAttribute(normAttr, face.c);
+
+    // 4) interpolate them
+    const interpolated = new Vector3()
+        .set(0, 0, 0)
+        .addScaledVector(nA, bary.x)
+        .addScaledVector(nB, bary.y)
+        .addScaledVector(nC, bary.z)
+        .normalize();
+
+    // 5) transform to world space
+    object.updateMatrixWorld(true);
+    const normalMatrix = new Matrix3().getNormalMatrix(object.matrixWorld);
+    interpolated.applyMatrix3(normalMatrix).normalize();
+
+    return interpolated;
+}
+
+function getHitAltitude(hit, compensation = 0){
+    return (rayOriginAlt - hit.distance) + compensation;
+}
+
+function setObjectOnRoad(object: Object3D){
+    // TODO 
+    // get object pos x, y
+    // call getRaycastHit
+    // get hit position, compensate car altitude approx: 0.5 / scale
+    // get hit normal
+    // apply normal and position
+    //       object.quaternion.copy(q);
+    //       object.position.copy(hitPointCompensated);
+}
+
+function setOrbitPoint(mouseX, mouseY) {
+	const elRect = renderer.domElement.getBoundingClientRect();
+	const canvasX = mouseX - elRect.left;
+	const canvasY = mouseY - elRect.top;
+
+	mouseNormalBuff.set(
+		(canvasX / elRect.width) * 2.0 - 1.0,
+		((elRect.height - canvasY) / elRect.height) * 2.0 - 1.0
+	);
+
+    camera.updateMatrixWorld();
+	cameraRaycaster.setFromCamera(mouseNormalBuff, camera);
+	const intersections = cameraRaycaster.intersectObject(globe.tiles.group, false);
+
+	if (intersections.length !== 0) {
+		controls.setOrbitPoint(intersections[0].point.x, intersections[0].point.y, intersections[0].point.z);
+	}
+}
+
 function renderScoreboard(drivers: Driver[]): void {
     const body = document.getElementById("scoreboard-body");
     if (!body) return;
@@ -486,10 +730,17 @@ function renderScoreboard(drivers: Driver[]): void {
 }
 
 function onRender(ts, frame): void {
-    // console.log(camera.position);
+    // if (globe.tiles.processNodeQueue.scheduled)
+    //     console.log(
+    //         'Pending preprocess jobs:', globe.tiles.processNodeQueue.currJobs, 
+    //         'Items:', globe.tiles.processNodeQueue.items.length,
+    //         'running:', globe.tiles.processNodeQueue.scheduled,
+    //         'MaxJobs:', globe.tiles.processNodeQueue.maxJobs, 
+    //     );
 
     if (!frame) {
-        if (controls) controls.update(clock.getDelta());
+        if (controls)
+            controls.update(clock.getDelta());
         globe.update();
     }
 
@@ -497,7 +748,7 @@ function onRender(ts, frame): void {
         const referenceSpace = renderer.xr.getReferenceSpace();
         const session = renderer.xr.getSession();
 
-        if (reticle && session?.enabledFeatures?.includes("hit-test")) {
+        if (reticle && session?.enabledFeatures?.includes('hit-test')) {
             if (hitTestSource) {
                 const hitTestResults = frame.getHitTestResults(hitTestSource);
                 if (hitTestResults.length && arPlacingGeomap) {
@@ -514,46 +765,103 @@ function onRender(ts, frame): void {
 
     if (renderer) {
         if (trackCurve && drivers.length > 0) {
-            trackTime += 0.0003; //0.0003;
+            trackTime += 0.0003;
             if (trackTime > 1) trackTime = 0;
 
             // Add null check for trackCurve
             const spacing = 0.05;
 
+            let normal;
+            let pos;
+            let lastQuaternions: Quaternion[] = [];
+
             drivers.forEach((driver, index) => {
                 const t = (trackTime - index * spacing + 1) % 1;
-                const pos = trackCurve?.getPointAt(t);
-                const tan = trackCurve?.getTangentAt(t);
-
+                pos = trackCurve?.getPointAt(t);
+                const tan = trackCurve?.getTangentAt(t).normalize();
                 if (pos && tan) {
-                    driver.positionOnTrack(pos, tan);
+                    normal = new Vector3();
+                    globe.tiles.group.localToWorld(pos); // Convert to world coordinates
+                    const hit = getRaycastHit(pos.x, pos.z);
+                    if (hit) {
+                        normal = new Vector3(0, 1, 0);//getSmoothHitNormal(hit);
+                        pos.y = getHitAltitude(hit, 0); // Set new height in world coordinates
+                    }
+                    globe.tiles.group.worldToLocal(pos); // Convert back to geo coordinates
+                    
+                    const binormal = new Vector3().crossVectors(normal, tan).normalize();
+                    const tangent = tan.clone().normalize();
+                    normal.crossVectors( tangent, binormal ); 
+                    const up = normal.clone().normalize();
+
+                    driver.car.car.position.copy(pos);
+                    driver.car.car.quaternion.setFromBasis(tangent, binormal, up);
+                    // console.log(driver.car.car.position);
+                    driver.car.car.updateMatrixWorld();
+                    
                     driver.updateLabel(camera, labelOffset);
                 }
             });
         }
 
-if (currentFollowDriver) {
-    const car = currentFollowDriver.car.car;
+        if (currentFollowDriver) {
+            const car = currentFollowDriver.car.car;
 
-    const carPos = car.getWorldPosition(new Vector3());
-    const carQuat = car.getWorldQuaternion(new Quaternion());
+            const carPos = car.getWorldPosition(new Vector3());
+            const carQuat = car.getWorldQuaternion(new Quaternion());
 
-    const forward = new Vector3(0, 0, -1).applyQuaternion(carQuat); // direção do carro
-    const worldUp = new Vector3(0, 1, 0); // cima global
+            const forward = new Vector3(1, 0, 0).applyQuaternion(carQuat); // look ahead
+            const worldUp = new Vector3(0, 1, 0); // upWorld
 
-    // Distâncias ajustadas para ficar alto e atrás
-    const offsetBehind = forward.clone().multiplyScalar(0.01 * scale); // mais atrás
-    const offsetAbove = worldUp.clone().multiplyScalar(0.65 * scale);    // mais acima
+            const offsetBehind = forward.clone().multiplyScalar(0.02 * scale); // Z Camera Depth
+            const offsetAbove = worldUp.clone().multiplyScalar(0.65 * scale);  // Y da camera
 
-    const cameraPos = carPos.clone().add(offsetBehind).add(offsetAbove);
-    const lookAt = carPos.clone().add(forward.clone().multiplyScalar(0.1 * scale - 1));
+            const cameraPos = carPos.clone().add(offsetBehind).add(offsetAbove);
+            const lookAt = carPos.clone().add(forward.clone().multiplyScalar(0.1 * scale + 1));
+            rendererCamera = currentFollowDriver.camera;
 
-    camera.position.copy(cameraPos);
-    camera.up.copy(worldUp); // força cima global para evitar inclinação estranha
-    camera.lookAt(lookAt);
-    camera.updateMatrixWorld();
-}
-        renderer.render(scene, camera);
+            // rendererCamera.position.copy(cameraPos);
+            // if (cockpitView && renderer.xr.isPresenting && currentFollowDriver) {
+            //     const car = currentFollowDriver.car.car;
+            //     const carPos = car.getWorldPosition(new Vector3());
+            //     const carQuat = car.getWorldQuaternion(new Quaternion());
+
+            //     xrRig.position.copy(carPos);
+            //     xrRig.quaternion.copy(carQuat);
+            //     xrRig.updateMatrixWorld(true);
+            // }
+            // else if (!renderer.xr.isPresenting) {
+            //     rendererCamera.position.copy(cameraPos);
+            //     rendererCamera.up.copy(worldUp);
+            //     rendererCamera.lookAt(lookAt);
+            //     rendererCamera.updateMatrixWorld();
+            // }
+            // rendererCamera.updateMatrixWorld();
+
+            //     if (cockpitView) {
+            //         xrRig.position.copy(carPos);             // Dentro do carro
+            //         xrRig.quaternion.copy(carQuat);          // Gira com o carro
+            //     } else {
+            //         xrRig.position.copy(cameraPos);          // Visão externa atrás do carro
+            //         xrRig.lookAt(lookAt);
+            //     }
+            // } else {
+            //     camera.position.copy(cameraPos);
+            //     camera.up.copy(worldUp);
+            //     camera.lookAt(lookAt);
+            //     camera.updateMatrixWorld();
+            // }
+        }
+        else{
+            rendererCamera = camera;
+        }
+
+        renderer.render(scene, rendererCamera);
+        // if (renderer.xr.isPresenting) {
+        //     renderer.render(scene, camera); 
+        // } else {
+        //     renderer.render(scene, rendererCamera);
+        // }
     }
 }
 
@@ -567,6 +875,33 @@ function onXRSession() {
     if (!renderer.xr.isPresenting) {
         arPlacingGeomap = true;
     }
+
+        // Se nenhum piloto estiver sendo seguido, seguir o primeiro
+    if (!currentFollowDriver && drivers.length > 0) {
+        currentFollowDriver = drivers[0]; // ou qualquer lógica que você queira
+        currentFollowDriver.hideLabel();
+        currentFollowDriver.hideLine();
+        controls.enabled = false;
+    }
+}
+
+function onVRSession() {
+    if (!currentFollowDriver && drivers.length > 0) {
+        currentFollowDriver = drivers[0]; // ou qualquer lógica que você queira
+        currentFollowDriver.hideLabel();
+        currentFollowDriver.hideLine();
+        controls.enabled = false;
+    }
+    if (cockpitView && currentFollowDriver) {
+    const car = currentFollowDriver.car.car;
+    const carPos = car.getWorldPosition(new Vector3());
+    const carQuat = car.getWorldQuaternion(new Quaternion());
+
+    xrRig.position.copy(carPos);
+    xrRig.quaternion.copy(carQuat);
+    xrRig.updateMatrixWorld(true);
+}
+
 }
 
 function onSessionEnd() {
@@ -577,13 +912,13 @@ function onSessionEnd() {
 
 function onSelect(event) {
     if (reticle && reticle.visible) {
-        const clippingPlugin = globe.tiles.getPluginByName("GLOBE_CLIPPING_PLUGIN");
+        const clippingPlugin = globe.tiles.getPluginByName('GLOBE_CLIPPING_PLUGIN');
         reticle.matrix.decompose(globeContainer.position, globeContainer.quaternion, globeContainer.scale);
-        globeContainer.scale.setScalar(1 / 1700);
+        globeContainer.scale.setScalar(scale);
         globeContainer.updateMatrixWorld(true);
 
-        // const clippingPlanes = clippingPlugin.clippingPlanes.map(plane => plane.clone().applyMatrix4(globeContainer.matrixWorld));
-        // clippingPlugin.applyClipping(clippingPlanes);
+        //         const clippingPlanes = clippingPlugin.clippingPlanes.map(plane => plane.clone().applyMatrix4(globeContainer.matrixWorld));
+        //         clippingPlugin.applyClipping(clippingPlanes);
 
         // const planeHelpers = clippingPlanes.map(p => new PlaneHelper(p, 1, 0x00ff00));
         // planeHelpers.forEach(helper => scene.add(helper));
