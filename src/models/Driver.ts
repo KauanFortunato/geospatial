@@ -9,12 +9,13 @@ export class Driver {
   nationality: string;
   position: number;
   points: number;
-  interval?: NodeJS.Timeout;
+  interval?: string;
   car: Car;
   label?: Sprite;
   line?: Line;
+  camera?: PerspectiveCamera;
 
-  constructor(nome: string, acronym: string, driverNumber: number, nationality: string, position: number, points: number, car: Car) {
+  constructor(nome: string, acronym: string, driverNumber: number, nationality: string, position: number, points: number, car: Car, camera: PerspectiveCamera) {
     this.name = nome;
     this.acronym = acronym;
     this.driverNumber = driverNumber;
@@ -22,6 +23,12 @@ export class Driver {
     this.position = position;
     this.points = points;
     this.car = car;
+    this.camera = camera;
+
+    this.car.car.add(this.camera);
+    if (this.camera) {
+      this.camera.name = nome;
+    }
   }
 
   updateLabel(camera: PerspectiveCamera, offset: Vector3) {

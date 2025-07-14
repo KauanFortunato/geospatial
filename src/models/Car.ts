@@ -1,7 +1,6 @@
 import { Mesh, MeshStandardMaterial, SphereGeometry, Vector3, Object3D, Quaternion, Matrix4, Euler, ArrowHelper } from "three";
 import { GLTFLoader, OBJLoader, FBXLoader, STLLoader, ColladaLoader, TDSLoader } from "three/examples/jsm/Addons.js";
 import { Team } from "./Team";
-import { formatError } from "cesium";
 import { MedianPassFilter } from "../utils/MedianPassFilter";
 export class Car {
   number: number;

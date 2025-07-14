@@ -46,9 +46,10 @@ import {
     ExtrudeGeometry,
     MeshNormalMaterial,
     PlaneGeometry,
-    BufferAttribute
+    BufferAttribute,
+    Camera
 } from "three";
-import { XRButton } from "three/examples/jsm/Addons.js";
+import { VRButton, XRButton } from "three/examples/jsm/Addons.js";
 import { Globe } from "../globe";
 import { Geodetic, radians } from "@takram/three-geospatial";
 import { Team } from "../models/Team";
@@ -76,7 +77,9 @@ let controls: CameraControls;
 let globalScale = 1;
 let globe: Globe;
 let renderer: WebGLRenderer;
-let camera: PerspectiveCamera; let scene: Scene;
+let camera: PerspectiveCamera;
+let rendererCamera: Camera; 
+let scene: Scene;
 let trackCurve: CatmullRomCurve3 | null = null;
 let trackTime = 0;
 let currentFollowDriver: Driver | null = null;
@@ -89,6 +92,9 @@ const globeContainer = new Group();
 const initialPositions: Vector3[] = [];
 const drivers: Driver[] = [];
 const labelOffset = new Vector3(0, 0, 30);
+let cockpitView = false;
+let cockpitBtn: HTMLButtonElement;
+let xrRig: Group;
 
 let recorder;
 const enableRecordingFeatures = false;
@@ -249,32 +255,24 @@ function init(): void {
 
     createDriversAndTeams();
 
-    // Create drivers and teams
-    const followContainer = document.getElementById("follow-buttons");
-    drivers.forEach((driver) => {
-        const btn = document.createElement("button");
-        btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
-        btn.addEventListener("click", () => {
-            if (currentFollowDriver === driver) {
-                currentFollowDriver = null;
-                driver.showLabel();
-                driver.showLine();
-                btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
-            } else {
-                currentFollowDriver = driver;
-                currentFollowDriver.hideLabel();
-                currentFollowDriver.hideLine();
+    window.addEventListener("resize", onWindowResize); // Handle window resize events   
 
-                document.querySelectorAll("#follow-buttons button").forEach((b) => {
-                    b.textContent = `Seguir ${b.textContent?.split(" ")[1]}`;
-                });
-                btn.textContent = "Parar de Seguir";
-            }
-        });
-        followContainer?.appendChild(btn);
+    cockpitBtn = document.createElement("button");
+    cockpitBtn.textContent = "Entrar no Cockpit";
+    cockpitBtn.style.position = "absolute";
+    cockpitBtn.style.bottom = "10px";
+    cockpitBtn.style.right = "10px";
+    cockpitBtn.style.padding = "10px 16px";
+    cockpitBtn.style.fontSize = "14px";
+    cockpitBtn.style.zIndex = "999";
+    cockpitBtn.style.display = "none"; // começa invisível
+    document.body.appendChild(cockpitBtn);
+
+    cockpitBtn.addEventListener("click", () => {
+        cockpitView = !cockpitView;
+        cockpitBtn.textContent = cockpitView ? "Sair do Cockpit" : "Entrar no Cockpit";
     });
 
-    window.addEventListener("resize", onWindowResize); // Handle window resize events    
 
     // Load GPX data
     const gpxUrl = new URL("./estoril-peter-auto.gpx", import.meta.url).href;
@@ -404,6 +402,7 @@ function init(): void {
 
     document.getElementById("camera-position-2")?.addEventListener("click", () => {
         // animateCameraTo(cameraPositions[1], cameraUp, centerECEF, 1500);
+
         if(enableRecordingFeatures)
             recorder.stop();
     });
@@ -452,9 +451,18 @@ function setupXR() {
         optionalFeatures: []
     });
 
-    xrButton.addEventListener('click', onXRSession);
-    document.body.appendChild(xrButton);
+    let vrButton = VRButton.createButton(renderer, {
+        requiredFeatures: []
+    })
 
+    renderer.xr.addEventListener('sessionstart', onVRSession);
+
+    xrButton.addEventListener('click', onXRSession);
+    // document.body.appendChild(xrButton);
+
+    // xrButton.addEventListener('click', onVRSession);
+    document.body.appendChild(vrButton);
+    
     const tLoader = new TextureLoader();
     reticle = new Mesh(
         new BoxGeometry(9.15 / 10, 6.10 / 10, 0.01).rotateX(-Math.PI / 2),
@@ -500,6 +508,13 @@ function setupMainCamera() {
     camera.position.copy(new Vector3(0.2, 1.2, 0.5));
     camera.lookAt(new Vector3(0, 0, 0));
     camera.updateProjectionMatrix();
+    camera.name = 'Main Camera';
+    rendererCamera = camera;
+    
+    xrRig = new Group();
+    xrRig.name = "xrRig";
+    scene.add(xrRig);
+    xrRig.add(camera);
 }
 
 function setupLODCameras(heightRatio = 2) {
@@ -591,7 +606,7 @@ function animateCameraTo(targetPos: Vector3, targetUp: Vector3, targetLookAt: Ve
     const startPos = camera.position.clone();
     const startUp = camera.up.clone();
     const startQuat = camera.quaternion.clone();
-
+    
     // Criar uma câmera temporária para calcular a rotação final
     const tempCam = camera.clone();
     tempCam.position.copy(targetPos);
@@ -635,10 +650,10 @@ async function createDriversAndTeams() {
         loadCarModel("/assets/cars/C42.glb", mercedes, renderer),
     ]);
 
-    let verstappen = new Driver("Max Verstappen", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB20", rb20, redBull));
-    let oscar = new Driver("Oscar Piastri", "pia", 81, "Australia", 7, 0, new Car(81, "MCL35M", mcl35m, mclaren));
-    let hamilton = new Driver("Lewis Hamilton", "ham", 44, "United Kingdom", 3, 0, new Car(44, "SF23", sf23, ferrari));
-    let kimi = new Driver("Kimi Räikkönen", "rak", 7, "Finland", 4, 0, new Car(7, "C42", c42, mercedes));
+    let verstappen = new Driver("Max Verstappen", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB20", rb20, redBull),  new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000));
+    let oscar = new Driver("Oscar Piastri", "pia", 81, "Australia", 7, 0, new Car(81, "MCL35M", mcl35m, mclaren),  new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000));
+    let hamilton = new Driver("Lewis Hamilton", "ham", 44, "United Kingdom", 3, 0, new Car(44, "SF23", sf23, ferrari),  new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000));
+    let kimi = new Driver("Kimi Räikkönen", "rak", 7, "Finland", 4, 0, new Car(7, "C42", c42, mercedes),  new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000));
 
     verstappen.position = 1;
     oscar.position = 2;
@@ -667,6 +682,42 @@ async function createDriversAndTeams() {
     });
 
     renderScoreboard(drivers);
+
+    const followContainer = document.getElementById("follow-buttons");
+    drivers.forEach((driver) => {
+        const btn = document.createElement("button");
+        btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
+        btn.addEventListener("click", () => {
+            if (currentFollowDriver === driver) {
+                // Parar de seguir o mesmo piloto
+                currentFollowDriver = null;
+                driver.showLabel();
+                driver.showLine();
+                controls.enabled = true;
+                btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
+            } else {
+                // Se já está seguindo outro, reativar a label/linha dele
+                if (currentFollowDriver) {
+                    currentFollowDriver.showLabel();
+                    currentFollowDriver.showLine();
+                }
+
+                currentFollowDriver = driver;
+                currentFollowDriver.hideLabel();
+                currentFollowDriver.hideLine();
+                controls.enabled = false;
+
+                // Atualiza todos os botões
+                document.querySelectorAll("#follow-buttons button").forEach((b) => {
+                    const acr = b.textContent?.split(" ")[1];
+                    b.textContent = `Seguir ${acr}`;
+                });
+
+                btn.textContent = "Parar de Seguir";
+            }
+        });
+        followContainer?.appendChild(btn);
+    });
 }
 
 function getRaycastHit(x: number, z: number) {
@@ -811,7 +862,7 @@ function onRender(ts, frame): void {
 
     if (renderer) {
         if (trackCurve && drivers.length > 0) {
-            trackTime += 0.0003; //0.0003;
+            trackTime += 0.0003;
             if (trackTime > 1) trackTime = 0;
 
             // Add null check for trackCurve
@@ -853,22 +904,61 @@ function onRender(ts, frame): void {
                 driver.positionOnTrack(tangent, bin, norm, pos);
                 driver.updateLabel(camera, labelOffset);
             });
-
         }
 
-        if (currentFollowDriver && trackCurve) {
-            const pos = currentFollowDriver.car.car.position.clone().multiplyScalar(globalScale);
-            const tangent = trackCurve.getTangentAt(trackTime);
-            const up = pos.clone().normalize();
-            const cameraOffset = tangent.clone().multiplyScalar(-30).add(up.clone().multiplyScalar(15)).multiplyScalar(globalScale);
-            const cameraPos = pos.clone().add(cameraOffset);
+        if (currentFollowDriver) {
+            const car = currentFollowDriver.car.car;
 
-            camera.position.copy(cameraPos);
-            camera.up.copy(up);
-            camera.lookAt(pos.clone().add(tangent.clone().multiplyScalar(10)));
+            const carPos = car.getWorldPosition(new Vector3());
+            const carQuat = car.getWorldQuaternion(new Quaternion());
+
+            const forward = new Vector3(1, 0, 0).applyQuaternion(carQuat); // look ahead
+            const worldUp = new Vector3(0, 1, 0); // upWorld
+
+            const offsetBehind = forward.clone().multiplyScalar(0.02 * scale); // Z Camera Depth
+            const offsetAbove = worldUp.clone().multiplyScalar(0.65 * scale);  // Y da camera
+
+            const cameraPos = carPos.clone().add(offsetBehind).add(offsetAbove);
+            const lookAt = carPos.clone().add(forward.clone().multiplyScalar(0.1 * scale + 1));
+            rendererCamera = currentFollowDriver.camera;
+
+            // rendererCamera.position.copy(cameraPos);
+            // if (cockpitView && renderer.xr.isPresenting && currentFollowDriver) {
+            //     const car = currentFollowDriver.car.car;
+            //     const carPos = car.getWorldPosition(new Vector3());
+            //     const carQuat = car.getWorldQuaternion(new Quaternion());
+
+            //     xrRig.position.copy(carPos);
+            //     xrRig.quaternion.copy(carQuat);
+            //     xrRig.updateMatrixWorld(true);
+            // }
+            // else if (!renderer.xr.isPresenting) {
+            //     rendererCamera.position.copy(cameraPos);
+            //     rendererCamera.up.copy(worldUp);
+            //     rendererCamera.lookAt(lookAt);
+            //     rendererCamera.updateMatrixWorld();
+            // }
+            // rendererCamera.updateMatrixWorld();
+
+            //     if (cockpitView) {
+            //         xrRig.position.copy(carPos);             // Dentro do carro
+            //         xrRig.quaternion.copy(carQuat);          // Gira com o carro
+            //     } else {
+            //         xrRig.position.copy(cameraPos);          // Visão externa atrás do carro
+            //         xrRig.lookAt(lookAt);
+            //     }
+            // } else {
+            //     camera.position.copy(cameraPos);
+            //     camera.up.copy(worldUp);
+            //     camera.lookAt(lookAt);
+            //     camera.updateMatrixWorld();
+            // }
+        }
+        else{
+            rendererCamera = camera;
         }
 
-        renderer.render(scene, camera);
+        renderer.render(scene, rendererCamera);
     }
 }
 
@@ -881,6 +971,33 @@ function onWindowResize(): void {
 function onXRSession() {
     if (!renderer.xr.isPresenting) {
         arPlacingGeomap = true;
+    }
+
+        // Se nenhum piloto estiver sendo seguido, seguir o primeiro
+    if (!currentFollowDriver && drivers.length > 0) {
+        currentFollowDriver = drivers[0]; // ou qualquer lógica que você queira
+        currentFollowDriver.hideLabel();
+        currentFollowDriver.hideLine();
+        controls.enabled = false;
+    }
+}
+
+function onVRSession() {
+    if (!currentFollowDriver && drivers.length > 0) {
+        currentFollowDriver = drivers[0]; // ou qualquer lógica que você queira
+        currentFollowDriver.hideLabel();
+        currentFollowDriver.hideLine();
+        controls.enabled = false;
+    }
+
+    if (cockpitView && currentFollowDriver) {
+        const car = currentFollowDriver.car.car;
+        const carPos = car.getWorldPosition(new Vector3());
+        const carQuat = car.getWorldQuaternion(new Quaternion());
+
+        xrRig.position.copy(carPos);
+        xrRig.quaternion.copy(carQuat);
+        xrRig.updateMatrixWorld(true);
     }
 }
 
