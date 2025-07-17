@@ -39,7 +39,7 @@ export function loadCarModel(path: string, team: Team, renderer: WebGLRenderer):
 function prepareCarModel(gltfScene: Object3D): Object3D {
     const wrapper = new Group();
     wrapper.add(gltfScene);
-    gltfScene.scale.set(0.6, 0.6, 0.6);
+    gltfScene.scale.set(0.5, 0.5, 0.5);
     gltfScene.rotation.y = Math.PI / 2;
     gltfScene.rotation.z = Math.PI;
     gltfScene.rotation.x = -Math.PI / 2;

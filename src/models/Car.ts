@@ -21,6 +21,13 @@ export class Car {
 
     this.altFilter = new MedianPassFilter(9);
     this.trackPos = 0;
+
+    this.car.userData.filteredT = new Vector3();
+    this.car.userData.filteredB = new Vector3();
+    this.car.userData.filteredN = new Vector3();
+    this.car.userData.smoothFactor = 0.8;  // low-pass α
+    this.car.userData.initialized = false;
+
   }
 
   setPosition(tangent: Vector3, binormal: Vector3, normal: Vector3, position: Vector3) {

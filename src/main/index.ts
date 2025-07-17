@@ -92,9 +92,7 @@ let lodCameras: PerspectiveCamera[] = [];
 const globeContainer = new Group();
 const initialPositions: Vector3[] = [];
 const drivers: Driver[] = [];
-const labelOffset = new Vector3(0, 0, 30);
-let cockpitView = false;
-let cockpitBtn: HTMLButtonElement;
+const labelOffset = new Vector3(0, 0, 20);
 let xrRig: Group;
 
 let recorder;
@@ -267,23 +265,6 @@ function init(): void {
     })();
 
     window.addEventListener("resize", onWindowResize); // Handle window resize events   
-
-    cockpitBtn = document.createElement("button");
-    cockpitBtn.textContent = "Entrar no Cockpit";
-    cockpitBtn.style.position = "absolute";
-    cockpitBtn.style.bottom = "10px";
-    cockpitBtn.style.right = "10px";
-    cockpitBtn.style.padding = "10px 16px";
-    cockpitBtn.style.fontSize = "14px";
-    cockpitBtn.style.zIndex = "999";
-    cockpitBtn.style.display = "none"; // começa invisível
-    document.body.appendChild(cockpitBtn);
-
-    cockpitBtn.addEventListener("click", () => {
-        cockpitView = !cockpitView;
-        cockpitBtn.textContent = cockpitView ? "Sair do Cockpit" : "Entrar no Cockpit";
-    });
-
 
     // Load GPX data
     const gpxUrl = new URL("./estoril-peter-auto.gpx", import.meta.url).href;
@@ -1108,11 +1089,12 @@ function onRender(ts, frame): void {
             // Add null check for trackCurve
 
             let normal;
-            const SMOOTHING = 0.1;
             drivers.forEach((driver, index) => {
                 if (!trackCurve || curvePoints.length === 0 || t.length === 0 || n.length === 0 || b.length === 0) {
                     return;
-                }                
+                }
+
+
 
                 const spacing = 40;
                 const idx = Math.max(0, Math.min(ls, Math.floor((trackTime * ls - index * spacing + ls) % ls)));
@@ -1145,15 +1127,35 @@ function onRender(ts, frame): void {
                 const bin = b[idx];
                 const norm = n[idx];
                 
-                if(norm.x < 0 && norm.z < 0) {
+                if (norm.x < 0 && norm.z < 0) {
                     norm.negate();
-                    bin.negate();
+                    bin .negate();
                 }
 
-                // pos.y += norm.y;
-                pos.z += norm.z;
-                // pos.y = driver.car.altFilter.process(pos.y);
-                driver.positionOnTrack(tangent, bin, norm, pos);
+                const ud = driver.car.car.userData;
+                if (!ud.initialized) {
+                    ud.filteredN = norm.clone();
+                    ud.filteredB = bin.clone();
+                    ud.smoothFactorMin = 0.02;
+                    ud.smoothFactorMax = 0.2;
+                    ud.initialized = true;
+                }
+
+                const prevN = ud.filteredN;
+                const prevB = ud.filteredB;
+                const dotN  = Math.max(-1, Math.min(1, prevN.dot(norm)));
+                const angleN = Math.acos(dotN);
+                const a = angleN / Math.PI;  // 0 em reta, 1 em curva de 180°
+                const dynamicAlpha = ud.smoothFactorMin + (ud.smoothFactorMax - ud.smoothFactorMin) * a;
+
+                ud.filteredN.lerp(norm, dynamicAlpha);
+                ud.filteredB.lerp(bin,   dynamicAlpha);
+
+                ud.filteredN.normalize();
+                // garante que binormal seja ortogonal a N e T
+                ud.filteredB.crossVectors(ud.filteredN, tangent).normalize();
+
+                driver.positionOnTrack(tangent, ud.filteredB, ud.filteredN, pos);
                 driver.updateLabel(camera, labelOffset);
             });
         }
