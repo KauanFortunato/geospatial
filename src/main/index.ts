@@ -225,7 +225,11 @@ async function loadGPXasECEF(url: string): Promise<Vector3[]> {
 
 function init(): void {
     setupGraphicsEngine();
-    setupXR();
+    if (currentFollowDriver) {
+        setupVR(); 
+    } else {
+        setupAR();  
+    }
     setupLight();
     setupMainCamera(); // Setup main camera
     setupLODCameras(); // Setup LOD cameras - Hires LOD Camera force tiles to load at full resolution & detail.
@@ -456,60 +460,75 @@ function setupGraphicsEngine() {
     renderer.setAnimationLoop(onRender);
 }
 
-function setupXR() {
-    renderer.xr.enabled = true;
-    renderer.xr.addEventListener('sessionend', onSessionEnd);
-
+function setupAR() {
+    console.log("[setupAR] A criar botão AR");
     let xrButton = XRButton.createButton(renderer, {
         requiredFeatures: ['hit-test'],
         optionalFeatures: []
     });
 
-    let vrButton = VRButton.createButton(renderer, {
-        requiredFeatures: []
-    })
-
-    renderer.xr.addEventListener('sessionstart', onVRSession);
+    xrButton.classList.add("xr-button");
 
     xrButton.addEventListener('click', onXRSession);
-    // document.body.appendChild(xrButton);
-
-    // xrButton.addEventListener('click', onVRSession);
-    document.body.appendChild(vrButton);
-    
-    const tLoader = new TextureLoader();
-    reticle = new Mesh(
-        new BoxGeometry(9.15 / 10, 6.10 / 10, 0.01).rotateX(-Math.PI / 2),
-        new MeshBasicMaterial({ map: tLoader.load('assets/reticle.png'), transparent: true })
-    );
-    reticle.matrixAutoUpdate = false;
-    reticle.visible = false;
-    scene.add(reticle);
+    document.body.appendChild(xrButton);
 
     renderer.xr.addEventListener('sessionstart', async () => {
         const session = renderer.xr.getSession();
-        if (session && session.enabledFeatures) {
-            console.log("Granted WebXR Features:", Array.from(session.enabledFeatures));
+        if (session && session.enabledFeatures?.includes('hit-test')) {
+            if (!hitTestSourceRequested) {
+                const referenceSpace = await session.requestReferenceSpace('viewer');
+                // @ts-ignore
+                hitTestSource = await session.requestHitTestSource({ space: referenceSpace });
 
-            if (session.enabledFeatures.includes('hit-test')) {
-                if (hitTestSourceRequested === false) {
-                    session.requestReferenceSpace('viewer').then(function (referenceSpace) {
-                        // @ts-ignore
-                        session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
-                            hitTestSource = source;
-                        });
-                    });
+                session.addEventListener('end', () => {
+                    hitTestSource = null;
+                    hitTestSourceRequested = false;
+                });
 
-                    session.addEventListener('end', function () {
-                        hitTestSource = null;
-                        hitTestSourceRequested = false;
-                    });
-                    hitTestSourceRequested = true;
-                }
+                hitTestSourceRequested = true;
             }
+        }
+
+        if (session) {
             session.addEventListener('select', onSelect);
         }
     });
+}
+
+function setupVR() {
+    console.log("[setupVR] Chamado", currentFollowDriver?.name);
+
+    if (!currentFollowDriver) {
+        console.log("[setupVR] Sem piloto a seguir. Abortado.");
+        return;
+    }
+
+    let vrButton = VRButton.createButton(renderer, {
+        requiredFeatures: []
+    });
+
+    console.log("[setupVR] Botão VR criado?", !!vrButton);
+
+    vrButton.classList.add("vr-button");
+    vrButton.addEventListener("click", () => {
+        console.log("[setupVR] Clique no botão VR");
+        if (currentFollowDriver) {
+            onVRSession(currentFollowDriver);
+        }
+    });
+
+    document.body.appendChild(vrButton);
+    console.log("[setupVR] Botão VR adicionado ao DOM.");
+}
+
+function setupARDependingOnFollow() {
+    if (currentFollowDriver) {
+        console.log("[setupARDependingOnFollow] Criar botão VR");
+        setupVR();
+    } else {
+        console.log("[setupARDependingOnFollow] Criar botão AR");
+        setupAR();
+    }
 }
 
 function setupLight() {
@@ -740,6 +759,26 @@ function animateCameraTo(targetPos: Vector3, targetUp: Vector3, targetLookAt: Ve
     requestAnimationFrame(update);
 }
 
+function refreshXRUI() {
+    console.log("[refreshXRUI] Estado do piloto:", currentFollowDriver?.name || "nenhum");
+
+    const session = renderer.xr.getSession();
+    if (session) {
+        session.end().then(() => {
+            console.log("[refreshXRUI] Sessão XR terminada.");
+            updateXRButton();
+        });
+    } else {
+        updateXRButton();
+    }
+}
+
+function updateXRButton() {
+    document.querySelectorAll(".xr-button, .vr-button").forEach((el) => el.remove());
+    setupARDependingOnFollow();
+}
+
+
 async function createDriversAndTeams(maxDrivers = 20) {
     // === Criar equipas ===
     let redBull = new Team("Red Bull Racing", "#1E41FF", "/assets/teams/logos/lg-red-bull.webp");
@@ -852,12 +891,12 @@ async function createDriversAndTeams(maxDrivers = 20) {
                 driver.showLine();
                 controls.enabled = true;
                 btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
+                refreshXRUI();
             } else {
                 if (currentFollowDriver) {
                     currentFollowDriver.showLabel();
                     currentFollowDriver.showLine();
                 }
-
                 currentFollowDriver = driver;
                 currentFollowDriver.hideLabel();
                 currentFollowDriver.hideLine();
@@ -867,8 +906,8 @@ async function createDriversAndTeams(maxDrivers = 20) {
                     const acr = b.textContent?.split(" ")[1];
                     b.textContent = `Seguir ${acr}`;
                 });
-
                 btn.textContent = "Parar de Seguir";
+                refreshXRUI();
             }
         });
         followContainer?.appendChild(btn);
@@ -1010,16 +1049,16 @@ function renderScoreboard(drivers: Driver[]): void {
 
     positionContainer.addEventListener("click", () => {
         if (currentFollowDriver === driver) {
-            // Parar de seguir
             currentFollowDriver = null;
             driver.showLabel();
             driver.showLine();
             controls.enabled = true;
             eyeTracker.classList.remove("active");
             positionContainer.title = `Seguir ${driver.acronym}`;
+
+             refreshXRUI();
         } else {
 
-            // Reativar anterior
             if (currentFollowDriver) {
                 currentFollowDriver.showLabel();
                 currentFollowDriver.showLine();
@@ -1037,6 +1076,7 @@ function renderScoreboard(drivers: Driver[]): void {
             controls.enabled = false;
             eyeTracker.classList.add("active");
             positionContainer.title = "Parar de seguir";
+            refreshXRUI();
         }
         });
     });
@@ -1156,27 +1196,36 @@ function onRender(ts, frame): void {
                 driver.positionOnTrack(tangent, bin, norm, pos);
                 driver.updateLabel(camera, labelOffset);
             });
-        }
+        }  
 
-        if (currentFollowDriver) {
+    if (currentFollowDriver) {
+        // Só posiciona a câmara automaticamente se NÃO estiver em VR
+        if (!renderer.xr.isPresenting) {
             const car = currentFollowDriver.car.car;
 
             const carPos = car.getWorldPosition(new Vector3());
             const carQuat = car.getWorldQuaternion(new Quaternion());
 
-            const forward = new Vector3(1, 0, 0).applyQuaternion(carQuat); // look ahead
-            const worldUp = new Vector3(0, 1, 0); // upWorld
+            const forward = new Vector3(1, 0, 0).applyQuaternion(carQuat);
+            const worldUp = new Vector3(0, 1, 0);
 
-            const offsetBehind = forward.clone().multiplyScalar(0.02 * scale); // Z Camera Depth
-            const offsetAbove = worldUp.clone().multiplyScalar(0.65 * scale);  // Y da camera
+            const offsetBehind = forward.clone().multiplyScalar(0.02 * scale);
+            const offsetAbove = worldUp.clone().multiplyScalar(0.65 * scale);
 
             const cameraPos = carPos.clone().add(offsetBehind).add(offsetAbove);
             const lookAt = carPos.clone().add(forward.clone().multiplyScalar(0.1 * scale));
             rendererCamera = currentFollowDriver.camera;
+
+            // Posição e orientação fora do modo XR
+            camera.position.copy(cameraPos);
+            camera.lookAt(lookAt);
+            camera.updateMatrixWorld(true);
+        } else {
+            rendererCamera = camera; // usa a câmara principal para XR
         }
-        else{
-            rendererCamera = camera;
-        }
+    } else {
+        rendererCamera = camera;
+    }
 
         renderer.render(scene, rendererCamera);
     }
@@ -1192,34 +1241,29 @@ function onXRSession() {
     if (!renderer.xr.isPresenting) {
         arPlacingGeomap = true;
     }
-
-        // Se nenhum piloto estiver sendo seguido, seguir o primeiro
-    if (!currentFollowDriver && drivers.length > 0) {
-        currentFollowDriver = drivers[0]; // ou qualquer lógica que você queira
-        currentFollowDriver.hideLabel();
-        currentFollowDriver.hideLine();
-        controls.enabled = false;
-    }
+    currentFollowDriver = null;
+    controls.enabled = true;
 }
 
-function onVRSession() {
-    if (!currentFollowDriver && drivers.length > 0) {
-        currentFollowDriver = drivers[0]; // ou qualquer lógica que você queira
-        currentFollowDriver.hideLabel();
-        currentFollowDriver.hideLine();
-        controls.enabled = false;
-    }
+function onVRSession(driver: Driver) {
+    if (!driver) return;
 
-    if (cockpitView && currentFollowDriver) {
-        const car = currentFollowDriver.car.car;
-        const carPos = car.getWorldPosition(new Vector3());
-        const carQuat = car.getWorldQuaternion(new Quaternion());
+    currentFollowDriver = driver;
+    currentFollowDriver.hideLabel();
+    currentFollowDriver.hideLine();
+    controls.enabled = false;
 
-        xrRig.position.copy(carPos);
-        xrRig.quaternion.copy(carQuat);
-        xrRig.updateMatrixWorld(true);
-    }
+    const sourceCam = currentFollowDriver.camera;
+    const targetCam = camera; 
+
+    const worldPos = sourceCam.getWorldPosition(new Vector3());
+    const worldQuat = sourceCam.getWorldQuaternion(new Quaternion());
+
+    xrRig.position.copy(worldPos);
+    xrRig.quaternion.copy(worldQuat);
+    xrRig.updateMatrixWorld(true);
 }
+
 
 function onSessionEnd() {
     arPlacingGeomap = false;

@@ -13,7 +13,7 @@ export class Driver {
   car: Car;
   label?: Sprite;
   line?: Line;
-  camera?: PerspectiveCamera;
+  camera: PerspectiveCamera;
   spacing?: number;
   private _intervalTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -42,7 +42,6 @@ export class Driver {
       this.car.car.add(this.camera);
       this.camera.up.copy(new Vector3(0, 0, 1));
       this.camera.position.set(-3, 0, 2); // Ajuste a posição da câmera conforme necessário
-      this.camera.lookAt(new Vector3(5, -1, 4)); // A câmera olha para o carro
     }
   }
 
