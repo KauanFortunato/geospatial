@@ -58,6 +58,7 @@ import { Car } from "../models/Car";
 import CameraControls from "camera-controls";
 import { loadCarModel } from "../utils/modelLoader";
 import { TilesFadePlugin } from "3d-tiles-renderer/plugins";
+import { update } from "three/examples/jsm/libs/tween.module.js";
 
 const subsetOfTHREE = {
     Vector2: Vector2,
@@ -112,6 +113,10 @@ const lodCamAspectRatio = 1;
 const rayOriginAlt = 10000;
 const clock = new Clock();
 let transform;
+
+const maxDrivers = 20;
+const maxLap = 72;
+let currentLap: number = 0;
 
 const centerECEF = new Geodetic(radians(longitude), radians(latitude), 0).toECEF().multiplyScalar(globalScale);
 const cameraUp = centerECEF.clone().normalize();
@@ -225,6 +230,8 @@ function init(): void {
     setupMainCamera(); // Setup main camera
     setupLODCameras(); // Setup LOD cameras - Hires LOD Camera force tiles to load at full resolution & detail.
     setupCameraControls();
+    updateLap(currentLap);
+
     if (enableRecordingFeatures)
         setupRecordingFeatures();
 
@@ -253,7 +260,11 @@ function init(): void {
     if (useClipping)
         renderer.clippingPlanes = clippingPlanes;
 
-    createDriversAndTeams();
+
+    (async () => {
+        await loadFormula1Font();
+        createDriversAndTeams(maxDrivers);
+    })();
 
     window.addEventListener("resize", onWindowResize); // Handle window resize events   
 
@@ -311,91 +322,92 @@ function init(): void {
             console.warn("Nenhum ponto GPX carregado");
         }
 
-        // Road
-        {
-            const roadWidth = 8;
-            const halfWidth = roadWidth / 2;
-            const dw = [-halfWidth, -halfWidth * 0.6, -0.1, 0.1, halfWidth * 0.6, halfWidth]; // largura da pista dividida
-
-            const ws = dw.length - 1;
-            const wss = ws + 1;
-
-            const vertices = new Float32Array(lss * wss * 3);
-            const indices = new Uint32Array(ls * ws * 6);
-            let vIdx = 0;
-
-            for (let j = 0; j < lss; j++) {
-                for (let i = 0; i < wss; i++) {
-                    const offset = dw[i];
-                    const base = curvePoints[j];
-                    const nx = n[j].x, nz = n[j].z;
-                    const x = base.x + offset * nx;
-                    const y = base.y;
-                    const z = base.z + offset * nz;
-
-                    vertices[vIdx++] = x;
-                    vertices[vIdx++] = y;
-                    vertices[vIdx++] = z;
-                }
-            }
-
-            let iIdx = 0;
-            for (let j = 0; j < ls; j++) {
-                for (let i = 0; i < ws; i++) {
-                    const a = j * wss + i;
-                    const b = (j + 1) * wss + i;
-                    const c = (j + 1) * wss + (i + 1);
-                    const d = j * wss + (i + 1);
-
-                    indices[iIdx++] = a;
-                    indices[iIdx++] = b;
-                    indices[iIdx++] = c;
-
-                    indices[iIdx++] = a;
-                    indices[iIdx++] = c;
-                    indices[iIdx++] = d;
-                }
-            }
-
-            const geom = new BufferGeometry();
-            geom.setAttribute("position", new BufferAttribute(vertices, 3));
-            geom.setIndex(new BufferAttribute(indices, 1));
-            geom.computeVertexNormals();
-
-            const roadMat = new MeshStandardMaterial({ color: 0xfcba03 });
-            const roadMesh = new Mesh(geom, roadMat);
-            // globe.tiles.group.add(roadMesh);
-            roadMesh.updateMatrixWorld();
-            
-            // Road2
+        if(trackCurve) {
+            // Road
             {
-                const roadThickness = 0.1;
-                const shape = new Shape();
-                shape.moveTo(-roadWidth/2, 0);
-                shape.lineTo( roadWidth/2, 0);
-                shape.lineTo( roadWidth/2, roadThickness);
-                shape.lineTo(-roadWidth/2, roadThickness);
-                shape.closePath();
+                const roadWidth = 8;
+                const halfWidth = roadWidth / 2;
+                const dw = [-halfWidth, -halfWidth * 0.6, -0.1, 0.1, halfWidth * 0.6, halfWidth]; // largura da pista dividida
 
-                const extrudeSettings = {
-                    steps: ls,              // how many segments along the curve
-                    bevelEnabled: false,
-                    extrudePath: trackCurve
-                };
-                const roadGeo = new ExtrudeGeometry(shape, extrudeSettings);
-                const roadMat  = new MeshNormalMaterial();
-                const roadMesh2 = new Mesh(roadGeo, roadMat);
-                // globe.tiles.group.add(roadMesh2);
-                roadMesh2.updateMatrixWorld();
+                const ws = dw.length - 1;
+                const wss = ws + 1;
+
+                const vertices = new Float32Array(lss * wss * 3);
+                const indices = new Uint32Array(ls * ws * 6);
+                let vIdx = 0;
+
+                for (let j = 0; j < lss; j++) {
+                    for (let i = 0; i < wss; i++) {
+                        const offset = dw[i];
+                        const base = curvePoints[j];
+                        const nx = n[j].x, nz = n[j].z;
+                        const x = base.x + offset * nx;
+                        const y = base.y;
+                        const z = base.z + offset * nz;
+
+                        vertices[vIdx++] = x;
+                        vertices[vIdx++] = y;
+                        vertices[vIdx++] = z;
+                    }
+                }
+
+                let iIdx = 0;
+                for (let j = 0; j < ls; j++) {
+                    for (let i = 0; i < ws; i++) {
+                        const a = j * wss + i;
+                        const b = (j + 1) * wss + i;
+                        const c = (j + 1) * wss + (i + 1);
+                        const d = j * wss + (i + 1);
+
+                        indices[iIdx++] = a;
+                        indices[iIdx++] = b;
+                        indices[iIdx++] = c;
+
+                        indices[iIdx++] = a;
+                        indices[iIdx++] = c;
+                        indices[iIdx++] = d;
+                    }
+                }
+
+                const geom = new BufferGeometry();
+                geom.setAttribute("position", new BufferAttribute(vertices, 3));
+                geom.setIndex(new BufferAttribute(indices, 1));
+                geom.computeVertexNormals();
+
+                const roadMat = new MeshStandardMaterial({ color: 0xfcba03 });
+                const roadMesh = new Mesh(geom, roadMat);
+                // globe.tiles.group.add(roadMesh);
+                roadMesh.updateMatrixWorld();
+                
+                // Road2
+                {
+                    const roadThickness = 0.1;
+                    const shape = new Shape();
+                    shape.moveTo(-roadWidth/2, 0);
+                    shape.lineTo( roadWidth/2, 0);
+                    shape.lineTo( roadWidth/2, roadThickness);
+                    shape.lineTo(-roadWidth/2, roadThickness);
+                    shape.closePath();
+
+                    const extrudeSettings = {
+                        steps: ls,              // how many segments along the curve
+                        bevelEnabled: false,
+                        extrudePath: trackCurve
+                    };
+                    const roadGeo = new ExtrudeGeometry(shape, extrudeSettings);
+                    const roadMat  = new MeshNormalMaterial();
+                    const roadMesh2 = new Mesh(roadGeo, roadMat);
+                    // globe.tiles.group.add(roadMesh2);
+                    roadMesh2.updateMatrixWorld();
+                }
             }
         }
-
     });
 
     // Camera controls
     document.getElementById("camera-position-1")?.addEventListener("click", () => {
         // animateCameraTo(cameraPositions[0], cameraUp, centerECEF, 1500);
-
+        
         if(enableRecordingFeatures)
             recorder.start();
     });
@@ -410,6 +422,8 @@ function init(): void {
 
     if (showOrigin)
         scene.add(new AxesHelper(10));
+
+    setInterval(updateScoreboardIntervals, 1000);
 }
 
 function setupGraphicsEngine() {
@@ -505,7 +519,7 @@ function setupLight() {
 
 function setupMainCamera() {
     camera = new PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.001 * scale, 13000);
-    camera.position.copy(new Vector3(0.2, 1.2, 0.5));
+    camera.position.copy(new Vector3(-0.1, 0.3, 0.1));
     camera.lookAt(new Vector3(0, 0, 0));
     camera.updateProjectionMatrix();
     camera.name = 'Main Camera';
@@ -576,30 +590,120 @@ function setupRecordingFeatures() {
     };
 }
 
-function createDriverLabel(text: string, color: string): Sprite {
-    const canvas = document.createElement("canvas");
-    canvas.width = 256;
-    canvas.height = 64;
-    const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = color;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "white";
-    ctx.font = "bold 50px Arial";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(text, canvas.width / 2, canvas.height / 2);
-    const texture = new CanvasTexture(canvas);
-    const material = new SpriteMaterial({
-        map: texture,
-        depthTest: false,
-        depthWrite: false,
-        transparent: true,
-        toneMapped: false,
-    });
-    const sprite = new Sprite(material);
-    sprite.scale.set(40, 10, 1);
-    sprite.renderOrder = 999;
-    return sprite;
+// 1) Carrega a fonte dinâmica
+async function loadFormula1Font(): Promise<void> {
+  const font = new FontFace(
+    "Formula1",
+    `url("/assets/fonts/Formula1-Regular-1.ttf") format("truetype")`
+  );
+  // espera o download e parse
+  await font.load();
+  // registra na coleção de fonts do documento
+  (document as any).fonts.add(font);
+}
+
+function createDriverLabel(driver: Driver): Sprite {
+  // Parâmetros de estilo
+  const paddingY = 4;
+  const paddingX = 8;
+  const gapStripe = 5;
+  const stripeWidth = 5;
+  const stripePaddingY = 4;
+  const stripeRadius = 4;
+  const bgRadius = 6;
+  const fontSize = 28;
+  const fontFamily = `"Formula1", Arial, sans-serif`; // <— sua fonte custom aqui
+  const name = driver.name.toUpperCase().split(" ")[1];
+  const number = driver.position.toString();
+
+  // Cria canvas
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d")!;
+
+  // Define fonte antes de medir
+  ctx.font = `bold ${fontSize}px ${fontFamily}`;
+  ctx.textBaseline = "middle";
+
+  // Mede texto
+  const numW = ctx.measureText(number).width;
+  const nameW = ctx.measureText(name).width;
+
+  const logicalWidth  = paddingX + numW + gapStripe + stripeWidth + gapStripe + nameW + paddingX;
+  const logicalHeight = fontSize + paddingY * 2;
+
+  // Ajusta canvas
+  const width = paddingX + numW + gapStripe + stripeWidth + gapStripe + nameW + paddingX;
+  const height = fontSize + paddingY * 2;
+  canvas.width = width;
+  canvas.height = height;
+
+  // Redefine contexto (depois de resize)
+  ctx.font = `bold ${fontSize}px ${fontFamily}`;
+  ctx.textBaseline = "middle";
+
+  // Desenha fundo arredondado
+  ctx.fillStyle = "rgba(0, 0, 0, 0.86)";
+  const r = bgRadius;
+  ctx.beginPath();
+  ctx.moveTo(r, 0);
+  ctx.lineTo(width - r, 0);
+  ctx.quadraticCurveTo(width, 0, width, r);
+  ctx.lineTo(width, height - r);
+  ctx.quadraticCurveTo(width, height, width - r, height);
+  ctx.lineTo(r, height);
+  ctx.quadraticCurveTo(0, height, 0, height - r);
+  ctx.lineTo(0, r);
+  ctx.quadraticCurveTo(0, 0, r, 0);
+  ctx.fill();
+
+  // Posição vertical dos textos
+  const textY = height / 2 + paddingY / 2;
+
+  // Número
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "left";
+  ctx.fillText(number, paddingX, textY);
+
+  // Faixa colorida arredondada
+  const stripeX = paddingX + numW + gapStripe;
+  const stripeY = stripePaddingY;
+  const stripeH = height - stripePaddingY * 2;
+  const sr = stripeRadius;
+  ctx.fillStyle = driver.car.team.color;
+  ctx.beginPath();
+  ctx.moveTo(stripeX + sr, stripeY);
+  ctx.lineTo(stripeX + stripeWidth - sr, stripeY);
+  ctx.quadraticCurveTo(stripeX + stripeWidth, stripeY, stripeX + stripeWidth, stripeY + sr);
+  ctx.lineTo(stripeX + stripeWidth, stripeY + stripeH - sr);
+  ctx.quadraticCurveTo(stripeX + stripeWidth, stripeY + stripeH, stripeX + stripeWidth - sr, stripeY + stripeH);
+  ctx.lineTo(stripeX + sr, stripeY + stripeH);
+  ctx.quadraticCurveTo(stripeX, stripeY + stripeH, stripeX, stripeY + stripeH - sr);
+  ctx.lineTo(stripeX, stripeY + sr);
+  ctx.quadraticCurveTo(stripeX, stripeY, stripeX + sr, stripeY);
+  ctx.fill();
+
+  // Nome
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "left";
+  const nameX = stripeX + stripeWidth + gapStripe;
+  ctx.fillText(name, nameX, textY);
+
+  // Cria Sprite Three.js
+  const texture = new CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  const material = new SpriteMaterial({
+    map: texture,
+    depthTest: false,
+    depthWrite: false,
+    transparent: true,
+    toneMapped: false,
+  });
+  const sprite = new Sprite(material);
+  const aspect = width / height;
+  sprite.scale.set(10 * aspect, 10, 1);
+  sprite.renderOrder = 999;
+
+  return sprite;
 }
 
 function animateCameraTo(targetPos: Vector3, targetUp: Vector3, targetLookAt: Vector3, duration = 2000) {
@@ -636,41 +740,93 @@ function animateCameraTo(targetPos: Vector3, targetUp: Vector3, targetLookAt: Ve
     requestAnimationFrame(update);
 }
 
-async function createDriversAndTeams() {
-    // Create drivers and teams
-    let redBull = new Team("Red Bull Racing", "#1E41FF");
-    let mercedes = new Team("Mercedes-AMG Petronas", "#00D2BE");
-    let ferrari = new Team("Scuderia Ferrari", "#DC0000");
-    let mclaren = new Team("McLaren F1 Team", "#FF8700");
+async function createDriversAndTeams(maxDrivers = 20) {
+    // === Criar equipas ===
+    let redBull = new Team("Red Bull Racing", "#1E41FF", "/assets/teams/logos/lg-red-bull.webp");
+    let mercedes = new Team("Mercedes-AMG Petronas", "#00E1BE", "/assets/teams/logos/lg-mercedes.webp");
+    let ferrari = new Team("Scuderia Ferrari", "#DC0000", "/assets/teams/logos/lg-ferrari.png");
+    let mclaren = new Team("McLaren F1 Team", "#FF8000", "/assets/teams/logos/lg-mclaren.png");
+    let astonMartin = new Team("Aston Martin Aramco", "#229971", "/assets/teams/logos/lg-astonmartin.png");
+    let alpine = new Team("Alpine F1 Team", "#0090FF", "/assets/teams/logos/lg-alpine.png");
+    let haas = new Team("Haas F1 Team", "#e24a4aff", "/assets/teams/logos/lg-haas.png");
+    let kickSauber = new Team("Kick Sauber", "#00FF87", "/assets/teams/logos/lg-kicksauber.png");
+    let williams = new Team("Williams Racing", "#005AFF", "/assets/teams/logos/lg-williams.png");
+    let racingBulls = new Team("Visa Cash App RB", "#24135F", "/assets/teams/logos/lg-racingbulls.png");
 
-    const [rb20, mcl35m, sf23, c42] = await Promise.all([
-        loadCarModel("/assets/cars/RB20.glb", redBull, renderer),
-        loadCarModel("/assets/cars/MCL35M.glb", mclaren, renderer),
-        loadCarModel("/assets/cars/SF23.glb", ferrari, renderer),
-        loadCarModel("/assets/cars/C42.glb", mercedes, renderer),
+    // === Carregar modelos ===
+    const [
+        alpine_car,
+        astonmartin_car,
+        ferrari_car,
+        haas_car,
+        kicksauber_car,
+        mclaren_car,
+        mercedes_car,
+        redbull_car,
+        redbullvisa_car,
+        williams_car
+    ] = await Promise.all([
+        loadCarModel("/assets/cars/alpine_car.glb", alpine, renderer),
+        loadCarModel("/assets/cars/astonmartin_car.glb", astonMartin, renderer),
+        loadCarModel("/assets/cars/ferrari_car.glb", ferrari, renderer),
+        loadCarModel("/assets/cars/haas_car.glb", haas, renderer),
+        loadCarModel("/assets/cars/kicksauber_car.glb", kickSauber, renderer),
+        loadCarModel("/assets/cars/mclaren_car.glb", mclaren, renderer),
+        loadCarModel("/assets/cars/mercedes_car.glb", mercedes, renderer),
+        loadCarModel("/assets/cars/redbull_car.glb", redBull, renderer),
+        loadCarModel("/assets/cars/redbullvisa_car.glb", racingBulls, renderer),
+        loadCarModel("/assets/cars/williams_car.glb", williams, renderer)
     ]);
 
-    let verstappen = new Driver("Max Verstappen", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB20", rb20, redBull),  new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000));
-    let oscar = new Driver("Oscar Piastri", "pia", 81, "Australia", 7, 0, new Car(81, "MCL35M", mcl35m, mclaren),  new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000));
-    let hamilton = new Driver("Lewis Hamilton", "ham", 44, "United Kingdom", 3, 0, new Car(44, "SF23", sf23, ferrari),  new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000));
-    let kimi = new Driver("Kimi Räikkönen", "rak", 7, "Finland", 4, 0, new Car(7, "C42", c42, mercedes),  new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000));
+    // === Criar todos os drivers ===
+    const allDrivers = [
+        // RED BULL
+        new Driver("Max Verstappen", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB20", redbull_car.clone(), redBull, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 40),
+        new Driver("Yuki Tsunoda", "tsu", 22, "Japan", 16, 0, new Car(22, "VCARB01", redbullvisa_car.clone(), redBull, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 80),
 
-    verstappen.position = 1;
-    oscar.position = 2;
-    hamilton.position = 3;
-    kimi.position = 4;
+        // MCLAREN
+        new Driver("Oscar Piastri", "pia", 81, "Australia", 2, 0, new Car(81, "MCL35M", mclaren_car.clone(), mclaren, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
+        new Driver("Lando Norris", "nor", 4, "United Kingdom", 7, 0, new Car(4, "MCL35M", mclaren_car.clone(), mclaren, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
 
-    // Set initial positions for the drivers
-    // verstappen.positionOnTrack(initialPositions[verstappen.position]);
-    // kimi.positionOnTrack(initialPositions[kimi.position]);
-    // oscar.positionOnTrack(initialPositions[oscar.position]);
-    // hamilton.positionOnTrack(initialPositions[hamilton.position]);
+        // MERCEDES
+        new Driver("Kimi Antonelli", "ant", 7, "Italy", 3, 0, new Car(7, "W15", mercedes_car.clone(), mercedes, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
+        new Driver("George Russell", "rus", 63, "United Kingdom", 6, 0, new Car(63, "W15", mercedes_car.clone(), mercedes, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
+
+        // FERRARI
+        new Driver("Lewis Hamilton", "ham", 44, "United Kingdom", 4, 7, new Car(44, "SF23", ferrari_car.clone(), ferrari, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
+        new Driver("Charles Leclerc", "lec", 16, "Monaco", 5, 0, new Car(16, "SF23", ferrari_car.clone(), ferrari, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
+
+        // ASTON MARTIN
+        new Driver("Fernando Alonso", "alo", 14, "Spain", 9, 2, new Car(14, "AMR24", astonmartin_car.clone(), astonMartin, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
+        new Driver("Lance Stroll", "str", 18, "Canada", 10, 0, new Car(18, "AMR24", astonmartin_car.clone(), astonMartin, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 55),
+
+        // WILLIAMS
+        new Driver("Alexander Albon", "alb", 23, "Thailand", 11, 0, new Car(23, "FW46", williams_car.clone(), williams, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
+        new Driver("Carlos Sainz", "sai", 55, "Spain", 8, 0, new Car(55, "SF23", williams_car.clone(), williams, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 70),
+
+       // ALPINE
+        new Driver("Pierre Gasly", "gas", 10, "France", 12, 0, new Car(10, "A524", alpine_car.clone(), alpine, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
+        new Driver("Franco Colapinto", "col", 29, "Argentina", 13, 0, new Car(29, "A524", alpine_car.clone(), alpine, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 55),
+
+        // HAAS
+        new Driver("Esteban Ocon", "oco", 31, "France", 14, 0, new Car(31, "VF-24", haas_car.clone(), haas, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 110),
+        new Driver("Oliver Bearman", "bea", 38, "United Kingdom", 15, 0, new Car(38, "VF-24", haas_car.clone(), haas, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 70), 
+        // RACING BULLS
+        new Driver("Liam Lawson", "law", 40, "New Zealand", 17, 0, new Car(40, "VCARB01", redbullvisa_car.clone(), racingBulls, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
+        new Driver("Isack Hadjar", "had", 20, "France", 20, 0, new Car(20, "A524", redbullvisa_car.clone(), racingBulls, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
+
+        // KICK SAUBER
+        new Driver("Nico Hulkenberg", "hul", 27, "Germany", 18, 0, new Car(27, "C44", kicksauber_car.clone(), kickSauber, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
+        new Driver("Gabriel Bortoleto", "bor", 5, "Brazil", 19, 0, new Car(5, "C44", kicksauber_car.clone(), kickSauber, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
+    ]
+
+    // Limits the number of pilots
+    const selectedDrivers = allDrivers.slice(0, Math.min(maxDrivers, 20));
+    drivers.push(...selectedDrivers);
 
     // Add drivers to the scene
-    drivers.push(hamilton, oscar, verstappen, kimi);
-
-    drivers.forEach((driver) => {
-        driver.label = createDriverLabel(driver.acronym.toUpperCase(), driver.car.team.color);
+    selectedDrivers.forEach((driver) => {
+        driver.label = createDriverLabel(driver);
         globe.tiles.group.add(driver.label);
 
         const lineMaterial = new LineBasicMaterial({ color: 0xffffff });
@@ -679,24 +835,24 @@ async function createDriversAndTeams() {
         globe.tiles.group.add(driver.line);
 
         globe.tiles.group.add(driver.car.car);
+
+        driver.startIntervalFluctuation(2.0, 0.2, 1500);
     });
 
     renderScoreboard(drivers);
 
     const followContainer = document.getElementById("follow-buttons");
-    drivers.forEach((driver) => {
+    selectedDrivers.forEach((driver) => {
         const btn = document.createElement("button");
         btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
         btn.addEventListener("click", () => {
             if (currentFollowDriver === driver) {
-                // Parar de seguir o mesmo piloto
                 currentFollowDriver = null;
                 driver.showLabel();
                 driver.showLine();
                 controls.enabled = true;
                 btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
             } else {
-                // Se já está seguindo outro, reativar a label/linha dele
                 if (currentFollowDriver) {
                     currentFollowDriver.showLabel();
                     currentFollowDriver.showLine();
@@ -707,7 +863,6 @@ async function createDriversAndTeams() {
                 currentFollowDriver.hideLine();
                 controls.enabled = false;
 
-                // Atualiza todos os botões
                 document.querySelectorAll("#follow-buttons button").forEach((b) => {
                     const acr = b.textContent?.split(" ")[1];
                     b.textContent = `Seguir ${acr}`;
@@ -787,7 +942,7 @@ function setObjectOnRoad(object: Object3D){
 function setOrbitPoint(mouseX, mouseY) {
 	const elRect = renderer.domElement.getBoundingClientRect();
 	const canvasX = mouseX - elRect.left;
-	const canvasY = mouseY - elRect.top;
+    const canvasY = mouseY - elRect.top;
 
 	mouseNormalBuff.set(
 		(canvasX / elRect.width) * 2.0 - 1.0,
@@ -807,34 +962,119 @@ function renderScoreboard(drivers: Driver[]): void {
     const body = document.getElementById("scoreboard-body");
     if (!body) return;
 
+    const maxLapElement = document.getElementById("max-lap");
+    if (maxLapElement) {
+        maxLapElement.textContent = `${maxLap}`;
+    }
+
     body.innerHTML = "";
 
-    drivers.forEach((driver) => {
-        const row = document.createElement("div");
-        row.className = "driver-row";
-        row.style.borderLeftColor = driver.car.team.color;
+    drivers.sort((a, b) => a.position - b.position);
 
-        row.innerHTML = `
-      <p class="position">${driver.driverNumber}</p>
-      <p class="acronym">-${driver.acronym.toLocaleUpperCase()}</p>
-      <p class="interval">${driver.interval}</p>
-      <div class="tire" style="background-color: ${driver.car.team.color};"></div>
+    drivers.forEach((driver, i) => {
+    const row = document.createElement("div");
+    row.setAttribute("data-driver-number", driver.driverNumber.toString());
+    row.className = "driver-row";
+
+    const tireColor = driver.car.getTireColor?.() || "gray";
+
+    row.innerHTML = `
+        <div class="position-container p-2">
+            <p class="eye-tracker" style="cursor: pointer" title="Seguir ${driver.acronym}">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="16" fill="currentColor" class="bi bi-eye" viewBox="0 0 16 16">
+                    <path d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8M1.173 8a13 13 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5s3.879 1.168 5.168 2.457A13 13 0 0 1 14.828 8q-.086.13-.195.288c-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5s-3.879-1.168-5.168-2.457A13 13 0 0 1 1.172 8z"/>
+                    <path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5M4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0"/>
+                </svg>
+            </p>
+            <p class="text-center position">${driver.position}</p>
+        </div>
+        <img class="team-logo mx-2" src="${driver.car.team.logo}" alt="Team Logo">
+        <p class="acronym">${driver.acronym.toUpperCase()}</p>
+        <p class="interval">${driver.interval}</p>
+        <div class="tire mx-2" style="color: ${tireColor};">${driver.car.tire}</div>
+
+        <div class="fastest-lap" style="display: none;">
+            <img src="/assets/fastest-lap.png" alt="Fastest Lap">
+        </div>
     `;
-        console.log("Driver:", driver.name, "Position:", driver.position, "Color:", driver.car.team.color);
 
-        body.appendChild(row);
+    body.appendChild(row);
+
+    setTimeout(() => {
+        row.classList.add("show");
+    }, i * 100);
+
+    // Event listener para seguir/parar de seguir
+    const positionContainer = row.querySelector(".position-container") as HTMLElement;
+    const eyeTracker = row.querySelector(".eye-tracker") as HTMLElement;
+
+    positionContainer.addEventListener("click", () => {
+        if (currentFollowDriver === driver) {
+            // Parar de seguir
+            currentFollowDriver = null;
+            driver.showLabel();
+            driver.showLine();
+            controls.enabled = true;
+            eyeTracker.classList.remove("active");
+            positionContainer.title = `Seguir ${driver.acronym}`;
+        } else {
+
+            // Reativar anterior
+            if (currentFollowDriver) {
+                currentFollowDriver.showLabel();
+                currentFollowDriver.showLine();
+
+                // Restaurar ícone do anterior
+                const allEyes = document.querySelectorAll(".eye-tracker.active");
+                allEyes.forEach((svg) => {
+                    svg.classList.remove("active");
+                });
+            }
+
+            currentFollowDriver = driver;
+            driver.hideLabel();
+            driver.hideLine();
+            controls.enabled = false;
+            eyeTracker.classList.add("active");
+            positionContainer.title = "Parar de seguir";
+        }
+        });
     });
 }
 
-function onRender(ts, frame): void {
-    // if (globe.tiles.processNodeQueue.scheduled)
-    //     console.log(
-    //         'Pending preprocess jobs:', globe.tiles.processNodeQueue.currJobs, 
-    //         'Items:', globe.tiles.processNodeQueue.items.length,
-    //         'running:', globe.tiles.processNodeQueue.scheduled,
-    //         'MaxJobs:', globe.tiles.processNodeQueue.maxJobs, 
-    //     );
+function updateScoreboard(fastestDriver: Driver): void {
+  document.querySelectorAll(".driver-row .fastest-lap").forEach(el => {
+    (el as HTMLElement).style.display = "none";
+  });
 
+  const row = document.querySelector(`.driver-row[data-driver-number="${fastestDriver.driverNumber.toString()}"]`);
+  const fastestElem = row?.querySelector(".fastest-lap") as HTMLElement;
+  if (fastestElem) {
+    fastestElem.style.display = "block";
+  }
+}
+
+function updateScoreboardIntervals(): void {
+  document.querySelectorAll(".driver-row").forEach((row) => {
+    const driverNumber = row.getAttribute("data-driver-number");
+    const driver = drivers.find((d) => d.driverNumber.toString() === driverNumber);
+    if (driver) {
+      const intervalElem = row.querySelector(".interval");
+      if (intervalElem) {
+        intervalElem.textContent = driver.interval ?? "";
+      }
+    }
+  });
+}
+
+function updateLap(lap: Number) {
+    const lapElement = document.getElementById("current-lap");
+    if (lapElement) {
+        lapElement.textContent = `${lap}`;
+    }
+}
+
+function onRender(ts, frame): void {
     if (!frame) {
         if (controls)
             controls.update(clock.getDelta());
@@ -862,24 +1102,32 @@ function onRender(ts, frame): void {
 
     if (renderer) {
         if (trackCurve && drivers.length > 0) {
-            trackTime += 0.0003;
+            trackTime += 0.0009;
             if (trackTime > 1) trackTime = 0;
 
             // Add null check for trackCurve
-            const spacing = 0.05;
 
             let normal;
-            let pos;
-            let lastQuaternions: Quaternion[] = [];
-
+            const SMOOTHING = 0.1;
             drivers.forEach((driver, index) => {
                 if (!trackCurve || curvePoints.length === 0 || t.length === 0 || n.length === 0 || b.length === 0) {
                     return;
+                }                
+
+                const spacing = 40;
+                const idx = Math.max(0, Math.min(ls, Math.floor((trackTime * ls - index * spacing + ls) % ls)));
+                if (idx === 0 && driver.position === drivers.length) {
+                    const randomIndex = Math.floor(Math.random() * drivers.length);
+                    const fastest = drivers[randomIndex];
+
+                    updateScoreboard(fastest);
                 }
 
-                const spacing = 30;
-                const idx = Math.max(0, Math.min(ls, Math.floor((trackTime * ls - index * spacing + ls) % ls)));
-
+                if (idx === 0 && driver.position === 1) {
+                    currentLap++;
+                    if(currentLap > maxLap) currentLap = 0;
+                    updateLap(currentLap);
+                }
                 const pos = curvePoints[idx].clone();
                 if (pos) {
                     normal = new Vector3();
@@ -889,17 +1137,21 @@ function onRender(ts, frame): void {
                         // normal = getSmoothHitNormal(hit);
                         pos.y = getHitAltitude(hit, 0); // Set new height in world coordinates
                     }
-                    globe.tiles.group.worldToLocal(pos); // Convert back to geo coordinates                   
+                    globe.tiles.group.worldToLocal(pos); // Convert back to geo coordinates
+                    pos.add(new Vector3(0, -0.00085, 0)); // Offset to compensate car altitude
                 }
 
                 const tangent = t[idx];
                 const bin = b[idx];
                 const norm = n[idx];
+                
+                if(norm.x < 0 && norm.z < 0) {
+                    norm.negate();
+                    bin.negate();
+                }
 
-                pos.x += norm.x;
                 // pos.y += norm.y;
                 pos.z += norm.z;
-                
                 // pos.y = driver.car.altFilter.process(pos.y);
                 driver.positionOnTrack(tangent, bin, norm, pos);
                 driver.updateLabel(camera, labelOffset);
@@ -919,40 +1171,8 @@ function onRender(ts, frame): void {
             const offsetAbove = worldUp.clone().multiplyScalar(0.65 * scale);  // Y da camera
 
             const cameraPos = carPos.clone().add(offsetBehind).add(offsetAbove);
-            const lookAt = carPos.clone().add(forward.clone().multiplyScalar(0.1 * scale + 1));
+            const lookAt = carPos.clone().add(forward.clone().multiplyScalar(0.1 * scale));
             rendererCamera = currentFollowDriver.camera;
-
-            // rendererCamera.position.copy(cameraPos);
-            // if (cockpitView && renderer.xr.isPresenting && currentFollowDriver) {
-            //     const car = currentFollowDriver.car.car;
-            //     const carPos = car.getWorldPosition(new Vector3());
-            //     const carQuat = car.getWorldQuaternion(new Quaternion());
-
-            //     xrRig.position.copy(carPos);
-            //     xrRig.quaternion.copy(carQuat);
-            //     xrRig.updateMatrixWorld(true);
-            // }
-            // else if (!renderer.xr.isPresenting) {
-            //     rendererCamera.position.copy(cameraPos);
-            //     rendererCamera.up.copy(worldUp);
-            //     rendererCamera.lookAt(lookAt);
-            //     rendererCamera.updateMatrixWorld();
-            // }
-            // rendererCamera.updateMatrixWorld();
-
-            //     if (cockpitView) {
-            //         xrRig.position.copy(carPos);             // Dentro do carro
-            //         xrRig.quaternion.copy(carQuat);          // Gira com o carro
-            //     } else {
-            //         xrRig.position.copy(cameraPos);          // Visão externa atrás do carro
-            //         xrRig.lookAt(lookAt);
-            //     }
-            // } else {
-            //     camera.position.copy(cameraPos);
-            //     camera.up.copy(worldUp);
-            //     camera.lookAt(lookAt);
-            //     camera.updateMatrixWorld();
-            // }
         }
         else{
             rendererCamera = camera;

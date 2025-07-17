@@ -10,14 +10,16 @@ export class Car {
   lastUp: Vector3 = new Vector3(0, 1, 0); // up inicial
   trackPos: number;
   altFilter: MedianPassFilter;
+  tire: String;
 
-  constructor(number: number, modelo: string, car: Object3D, team: Team) {
+  constructor(number: number, modelo: string, car: Object3D, team: Team, tire: String) {
     this.number = number;
     this.model = modelo;
     this.team = team;
     this.car = car;
-    this.altFilter = new MedianPassFilter(9);
+    this.tire = tire;
 
+    this.altFilter = new MedianPassFilter(9);
     this.trackPos = 0;
   }
 
@@ -25,5 +27,18 @@ export class Car {
     this.car.position.copy(position);
     this.car.quaternion.setFromBasis(tangent, binormal, normal);
     this.car.updateMatrixWorld(true);
+  }
+
+  getTireColor(): string {
+    switch (this.tire.toUpperCase()) {
+        case 'S':
+        return '#c90705';
+        case 'M':
+        return '#ffee00';
+        case 'H':
+        return 'white';
+        default:
+        return 'gray'; // fallback
+    }
   }
 }

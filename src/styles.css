@@ -1,3 +1,25 @@
+/* Fonte Regular */
+@font-face {
+  font-family: 'f1Font';
+  src: url('/assets/fonts/Formula1-Regular-1.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+/* Fonte Bold */
+@font-face {
+  font-family: 'f1Font';
+  src: url('/assets/fonts/Formula1-Bold_web.ttf') format('truetype');
+  font-weight: bold;
+  font-style: normal;
+}
+
+* {
+  font-family: "f1Font", sans-serif;
+  font-variant-ligatures: none;
+  color: #e1e3ea;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -24,105 +46,7 @@ body {
   left: 10px;
   color: #eee;
   font-size: 10px;
-  font-family: Arial, sans-serif;
   text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
-}
-
-#controls {
-  width: 250px;
-  height: min-content;
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background-color: #111;
-  color: white;
-  font-family: "Arial", sans-serif;
-  border-radius: 8px;
-  overflow: hidden;
-  padding: 10px;
-  margin-top: 10px;
-}
-
-#controls .header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-#controls .header svg {
-  background-color: transparent;
-  border: none;
-  color: white;
-  cursor: pointer;
-  font-size: 16px;
-  user-select: none;
-  transition: transform 0.2s;
-}
-
-#controls .header h1 {
-  font-size: 16px;
-  margin: 0 0 0 0;
-  padding-left: 4px;
-  border-left: 4px solid #e10600; /* F1 Red accent */
-}
-
-.camera-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 10px;
-  height: 0px;
-  transform: scaleY(0);
-  transform-origin: top;
-  transition: transform 0.2s, height 0.2s;
-}
-
-#controls #show-controls {
-  display: none;
-}
-
-#controls #show-controls:checked ~ .camera-controls {
-  transform-origin: top;
-  transform: scaleY(1);
-  height: min-content;
-}
-
-#controls #show-controls:checked ~ .header svg {
-  transform: rotate(-180deg);
-}
-
-.default-positions,
-#follow-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.default-positions button,
-#follow-buttons button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background-color: #222;
-  border: none;
-  color: white;
-  padding: 8px 10px;
-  border-left: 5px solid transparent;
-  border-radius: 4px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.default-positions button:hover,
-#follow-buttons button:hover {
-  background-color: #333;
-}
-
-.default-positions button svg,
-#follow-buttons button svg {
-  flex-shrink: 0;
 }
 
 /* Scoreboard */
@@ -131,25 +55,37 @@ body {
   position: absolute;
   left: 10px;
   top: 10px;
-  width: 250px;
-  background-color: #111;
+  width: 210px;
   color: white;
-  font-family: "Arial", sans-serif;
-  border-radius: 8px;
-  overflow: hidden;
-  padding: 10px;
+
+  user-select: none;
+  /* transform: scale(0.85); */
+  transform-origin: top left;
+
+  transition: all 0.1s ease-in-out;
 }
 
 .scoreboard-header {
   display: flex;
   align-items: center;
+  flex-direction: column;
+  background-color: #0e121a;
   justify-content: space-between;
-  margin-bottom: 8px;
+  border-radius: 10px 10px 0 0;
 }
 
+.scoreboard-header .lap-container {
+  border-top: 3px solid #25282f;
+}
+
+.lap-container .lap-title {
+  color: #8c8b95;
+} 
+
 .f1-logo {
-  width: 40px;
-  height: 40px;
+  width: 45%;
+  height: auto;
+  margin: auto;
 }
 
 .lap-info {
@@ -160,22 +96,67 @@ body {
 .scoreboard-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  background-color: rgba(23, 25, 36, 0.856);
+  backdrop-filter: blur(10px);
+  border-radius: 0 0 10px 10px;
 }
 
 .driver-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background-color: #161616;
-  padding: 10px 6px;
-  border-left: 5px solid transparent;
   border-radius: 5px;
+  margin-bottom: 1px;
+
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.driver-row.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.position-container .eye-tracker {
+  display: none;
+}
+
+.position-container .eye-tracker.active{
+  display: block;
+}
+
+.eye-tracker.active + .position{
+  display: none;
+}
+
+.position-container:hover .eye-tracker {
+  display: block;
+}
+
+.position-container:hover .position {
+  display: none;
+}
+
+.driver-row:first-child .position-container {
+  background-color: #c90705;
+}
+
+.driver-row:last-child {
+  border-radius: 0 0 10px 10px;
+  overflow: hidden;
+  margin-bottom: 0px;
+}
+
+
+.position-container {
+  background-color: #0e0d13;
+  cursor: pointer;
 }
 
 .driver-row p {
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .driver-row .position {
@@ -183,23 +164,97 @@ body {
   text-align: right;
 }
 
+.driver-row .team-logo {
+  aspect-ratio: 1 / 1;
+  width: 24px;
+  height: 24px;
+}
+
 .driver-row .acronym {
   width: 40px;
   font-weight: bold;
   color: white;
+  font-size: 13px;
 }
 
 .driver-row .interval {
   flex-grow: 1;
   text-align: right;
-  font-size: 12px;
-  color: #ccc;
+  font-size: 13px;
+  color: #eceef2;
+}
+
+.driver-row .cam-driver {
+  width: max-content;
+  height: max-content;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .driver-row .tire {
-  width: 10px;
-  height: 10px;
-  background-color: red;
-  border-radius: 50%;
-  margin-left: 6px;
+  color: #ffee00;
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.driver-row.driver-tracking:first-child {
+  background-color: #182c53;
+}
+
+.driver-row .fastest-lap {
+  position: absolute;
+  right: -25px;
+}
+
+.driver-row .fastest-lap img {
+  width: 22px;
+  height: 22px;
+  aspect-ratio: 1 / 1;
+  border-radius: 3px;
+}
+
+#scoreboard-view {
+  display: none;
+}
+
+.checkbox-label {
+  user-select: none;
+  cursor: pointer;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: none;
+
+  background-color: rgba(23, 25, 36, 0.856);
+  backdrop-filter: blur(10px);
+  padding: 5px;
+  border-radius: 8px;
+  color: white;
+}
+
+@media (max-width: 1440px) {
+   #scoreboard {
+    transform: scale(0.74);
+    transform-origin: top left;
+  }
+}
+
+@media (max-width: 320px) {
+   #scoreboard {
+    transform: scale(0.74);
+    transform-origin: top left;
+  }
+}
+
+/* Esconde o scoreboard via transform apenas em telas pequenas (smartphones) */
+@media only screen and (max-width: 600px) {
+  #scoreboard-view:checked ~ #scoreboard {
+    transform: scale(0);
+    transform-origin: top left;
+  }
+
+  .checkbox-label {
+    display: block;
+  }
 }
