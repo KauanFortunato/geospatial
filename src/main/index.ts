@@ -98,19 +98,21 @@ let xrRig: Group;
 let recorder;
 const enableRecordingFeatures = false;
 const showOrigin = false;
-const showLodCamHelpers = false;
+const showLodCamHelpers = true;
 const useClipping = false;
 const scale = 1 / 1700;
 const longitude = -9.394761567056307; // degrees
 const latitude = 38.75025825516866; // degrees
 const numLodCamCols = 1;
 const numLodCamRows = 1;
-const lodCamFOV = 155;
-const lodCamHeight = 350;
+let lodCamFOV = 155;
+let lodCamHeight = 350;
 const lodCamAspectRatio = 1;
 const rayOriginAlt = 10000;
 const clock = new Clock();
 let transform;
+
+let cockpitView = false;
 
 const maxDrivers = 20;
 const maxLap = 72;
@@ -217,11 +219,20 @@ async function loadGPXasECEF(url: string): Promise<Vector3[]> {
         points.push(geo.toECEF());
     });
 
-    console.log("GPX Points:", points.length, points);
     return points;
 }
 
+function isMobileDevice() {
+  return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
 function init(): void {
+    if (isMobileDevice()) {
+        lodCamFOV = 55;
+        lodCamHeight = 1500;
+    }
+    console.log("Mobile: ", isMobileDevice());
+
     setupGraphicsEngine();
     setupXR();
     setupLight();
@@ -520,7 +531,7 @@ function setupLODCameras(heightRatio = 2) {
         for (let j = 0; j < numLodCamRows; j++) {
             const x = (i - (numLodCamCols - 1) / 2) * (2 * halfWidth);
             const z = ((numLodCamRows - 1) / 2 - j) * (2 * halfHeight);
-            const cam = new PerspectiveCamera(lodCamFOV, lodCamAspectRatio, 1, 500);
+            const cam = new PerspectiveCamera(lodCamFOV, lodCamAspectRatio, 1, lodCamHeight);
             cam.position.set(x, lodCamHeight, z);
             cam.lookAt(new Vector3(x, 0, z));
             cam.updateMatrixWorld();
@@ -571,7 +582,6 @@ function setupRecordingFeatures() {
     };
 }
 
-// 1) Carrega a fonte dinâmica
 async function loadFormula1Font(): Promise<void> {
   const font = new FontFace(
     "Formula1",
@@ -1174,6 +1184,13 @@ function onRender(ts, frame): void {
 
             const cameraPos = carPos.clone().add(offsetBehind).add(offsetAbove);
             const lookAt = carPos.clone().add(forward.clone().multiplyScalar(0.1 * scale));
+
+            if(cockpitView) {
+                currentFollowDriver.camera.position.set(-3, 0, 2);
+            } else {
+                currentFollowDriver.camera.position.set(-20, 0, 90);
+            }
+
             rendererCamera = currentFollowDriver.camera;
         }
         else{

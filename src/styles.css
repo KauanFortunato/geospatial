@@ -233,6 +233,10 @@ body {
   color: white;
 }
 
+/* Lateral controll bar */
+
+
+
 @media (max-width: 1440px) {
    #scoreboard {
     transform: scale(0.74);

@@ -13,7 +13,7 @@ export class Driver {
   car: Car;
   label?: Sprite;
   line?: Line;
-  camera?: PerspectiveCamera;
+  camera: PerspectiveCamera;
   spacing?: number;
   private _intervalTimer: ReturnType<typeof setInterval> | null = null;
 
