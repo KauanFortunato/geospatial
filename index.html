@@ -37,6 +37,54 @@
       
     </div>
 
+    <div id="driver-details" class="position-absolute">
+      <div class="details-container d-flex w-100 justify-content-between align-items-center px-3 py-1">
+        <div class="driver-info d-flex align-items-center">
+          <p class="m-0">1</p>
+          <div class="bar mx-2" style="background-color: #1E41FF;"></div>
+          <p class="m-0 text-uppercase">Verstappen</p>
+        </div>
+
+        <div class="car-info d-flex">
+          <div class="cam-button me-3">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="bi bi-camera-video-fill" viewBox="0 0 16 16">
+              <path fill-rule="evenodd" d="M0 5a2 2 0 0 1 2-2h7.5a2 2 0 0 1 1.983 1.738l3.11-1.382A1 1 0 0 1 16 4.269v7.462a1 1 0 0 1-1.406.913l-3.111-1.382A2 2 0 0 1 9.5 13H2a2 2 0 0 1-2-2z"/>
+            </svg>
+          </div>
+          <div class="drs active px-1">
+            <p class="m-0">DRS</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="driver-statistics d-flex p-1 w-100">
+        <div class="driver-img ratio-1x1 p-1 col">
+          <img src="/assets/drivers/verstappen.png" class="ratio-1x1 w-100" alt="Driver image">
+        </div>
+
+        <div class="driver-timings p-3 col">
+          <div class="lap separation d-flex justify-content-between">
+            <b class="lap-label m-0">LAP</b>
+            <p class="m-0">0/72</p>
+          </div>
+          
+          <div class="fastest-lap-time separation w-100 d-flex flex-column mt-3">
+            <p class="label m-0">Fastest LAP time</p>
+            <p class="m-0">2.15.231</p>
+          </div>
+        </div>
+
+        <div class="cam-view col position-relative">
+          <div class="label-cam position-absolute top-50 start-50 translate-middle">
+            <svg xmlns="http://www.w3.org/2000/svg" width="45" height="45" fill="#a6a6a6" class="bi bi-camera-fill" viewBox="0 0 16 16">
+              <path d="M10.5 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"/>
+              <path d="M2 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1.172a2 2 0 0 1-1.414-.586l-.828-.828A2 2 0 0 0 9.172 2H6.828a2 2 0 0 0-1.414.586l-.828.828A2 2 0 0 1 3.172 4zm.5 2a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1m9 2.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="/src/main/index.ts"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js" integrity="sha384-ndDqU0Gzau9qJ1lfW4pNLlhNTkCfHzAVBReH9diLvGRem5+R9g2FzA8ZGN954O5Q" crossorigin="anonymous"></script>
   </body>

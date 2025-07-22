@@ -1,3 +1,18 @@
+/* Variáveis de cores */
+:root {
+  --color-text: rgb(225, 227, 234);
+  --color-text-light: rgb(238, 238, 238);
+  --color-bg-header: rgb(14, 18, 26);
+  --color-border: rgb(37, 40, 47);
+  --color-lap-title: rgb(140, 139, 149);
+  --color-bg-body: rgba(23, 25, 36, 0.856);
+  --color-bg-position: rgb(14, 13, 19);
+  --color-tire: rgb(255, 238, 0);
+  --color-first-position-bg: rgb(201, 7, 5);
+  --color-tracking-bg: rgb(24, 44, 83);
+  --color-shadow: rgba(0, 0, 0, 0.5);
+}
+
 /* Fonte Regular */
 @font-face {
   font-family: 'f1Font';
@@ -17,7 +32,7 @@
 * {
   font-family: "f1Font", sans-serif;
   font-variant-ligatures: none;
-  color: #e1e3ea;
+  color: var(--color-text);
 }
 
 body {
@@ -44,9 +59,9 @@ body {
   position: absolute;
   bottom: 10px;
   left: 10px;
-  color: #eee;
+  color: var(--color-text-light);
   font-size: 10px;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+  text-shadow: 1px 1px 2px var(--color-shadow);
 }
 
 /* Scoreboard */
@@ -69,18 +84,18 @@ body {
   display: flex;
   align-items: center;
   flex-direction: column;
-  background-color: #0e121a;
+  background-color: var(--color-bg-header);
   justify-content: space-between;
   border-radius: 10px 10px 0 0;
 }
 
 .scoreboard-header .lap-container {
-  border-top: 3px solid #25282f;
+  border-top: 3px solid var(--color-border);
 }
 
 .lap-container .lap-title {
-  color: #8c8b95;
-} 
+  color: var(--color-lap-title);
+}
 
 .f1-logo {
   width: 45%;
@@ -96,7 +111,7 @@ body {
 .scoreboard-body {
   display: flex;
   flex-direction: column;
-  background-color: rgba(23, 25, 36, 0.856);
+  background-color: var(--color-bg-body);
   backdrop-filter: blur(10px);
   border-radius: 0 0 10px 10px;
 }
@@ -107,10 +122,15 @@ body {
   justify-content: space-between;
   border-radius: 5px;
   margin-bottom: 1px;
-
+  cursor: pointer;
   opacity: 0;
   transform: translateY(20px);
   transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.driver-row:hover {
+  scale: 1.1;
+  background-color: var(--color-bg-header);
 }
 
 .driver-row.show {
@@ -118,28 +138,9 @@ body {
   transform: translateY(0);
 }
 
-.position-container .eye-tracker {
-  display: none;
-}
-
-.position-container .eye-tracker.active{
-  display: block;
-}
-
-.eye-tracker.active + .position{
-  display: none;
-}
-
-.position-container:hover .eye-tracker {
-  display: block;
-}
-
-.position-container:hover .position {
-  display: none;
-}
 
 .driver-row:first-child .position-container {
-  background-color: #c90705;
+  background-color: var(--color-first-position-bg);
 }
 
 .driver-row:last-child {
@@ -150,7 +151,7 @@ body {
 
 
 .position-container {
-  background-color: #0e0d13;
+  background-color: var(--color-bg-position);
   cursor: pointer;
 }
 
@@ -181,7 +182,7 @@ body {
   flex-grow: 1;
   text-align: right;
   font-size: 13px;
-  color: #eceef2;
+  color: var(--color-text);
 }
 
 .driver-row .cam-driver {
@@ -193,13 +194,13 @@ body {
 }
 
 .driver-row .tire {
-  color: #ffee00;
+  color: var(--color-tire);
   font-size: 13px;
   text-transform: capitalize;
 }
 
 .driver-row.driver-tracking:first-child {
-  background-color: #182c53;
+  background-color: var(--color-tracking-bg);
 }
 
 .driver-row .fastest-lap {
@@ -226,7 +227,7 @@ body {
   right: 10px;
   display: none;
 
-  background-color: rgba(23, 25, 36, 0.856);
+  background-color: var(--color-bg-body);
   backdrop-filter: blur(10px);
   padding: 5px;
   border-radius: 8px;
@@ -235,7 +236,84 @@ body {
 
 /* Lateral controll bar */
 
+/* Driver details */
 
+#driver-details {
+  width: 25%;
+  position: absolute;
+  right: 30px;
+  bottom: 30px;
+  border-radius: 10px;
+}
+
+.details-container {
+  background-color: var(--color-bg-body);
+}
+  .details-container p {
+    color: var(--color-text-light);
+  }
+
+.details-container .bar {
+  width: 5px;
+  height: 1.1rem;
+  border-radius: 50px;
+}
+
+.details-container .drs {
+  border: 2px solid #9a9697;
+  font-size: 12px;
+}
+  .details-container .drs.active {
+    border: 2px solid #5daf5a;
+    font-size: 12px;
+  }
+  
+  .details-container .drs p {
+    color: #9a9697;
+  }
+
+  .details-container .drs.active p {
+    color: #5daf5a;
+  }
+
+.details-container .cam-button {
+  cursor: pointer;
+}
+
+.driver-statistics {
+  background-color: var(--color-bg-header);
+}
+
+.driver-statistics .label {
+  color: #9a9697;
+}
+
+.driver-statistics .driver-img {
+  border: 2px solid var(--color-text-light);
+  border-radius: 5px;
+  aspect-ratio: 1/1;
+}
+  .driver-statistics .driver-img img {
+    aspect-ratio: 1/1;
+    object-fit: cover;
+  }
+
+.driver-statistics .driver-timings .separation {
+  border-bottom: 1px solid #292838;
+}
+
+.driver-timings .fastest-lap-time .label {
+  font-size: 11px;
+}
+
+
+  .driver-statistics .cam-view .btn-preview-camera {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10;
+  }
 
 @media (max-width: 1440px) {
    #scoreboard {

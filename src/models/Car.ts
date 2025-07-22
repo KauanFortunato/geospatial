@@ -7,6 +7,7 @@ export class Car {
   model: string;
   team: Team;
   car: Object3D;
+  drs: boolean = false;
   lastUp: Vector3 = new Vector3(0, 1, 0); // up inicial
   trackPos: number;
   altFilter: MedianPassFilter;

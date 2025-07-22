@@ -98,7 +98,7 @@ let xrRig: Group;
 let recorder;
 const enableRecordingFeatures = false;
 const showOrigin = false;
-const showLodCamHelpers = true;
+const showLodCamHelpers = false;
 const useClipping = false;
 const scale = 1 / 1700;
 const longitude = -9.394761567056307; // degrees
@@ -111,6 +111,14 @@ const lodCamAspectRatio = 1;
 const rayOriginAlt = 10000;
 const clock = new Clock();
 let transform;
+
+let detailCamRenderer: WebGLRenderer | null = null;
+let currentDetailDriver: Driver | null = null;
+let camViewEnabled = false;
+
+const detailsPanel = document.getElementById('driver-details');
+if (detailsPanel)
+    detailsPanel.style.display = 'none';
 
 let cockpitView = false;
 
@@ -278,7 +286,7 @@ function init(): void {
     window.addEventListener("resize", onWindowResize); // Handle window resize events   
 
     // Load GPX data
-    const gpxUrl = new URL("./estoril-peter-auto.gpx", import.meta.url).href;
+    const gpxUrl = new URL("/assets/tracks/estoril.gpx", import.meta.url).href;
     loadGPXasECEF(gpxUrl).then((points) => {
         if (points.length > 1) {
             console.log("GPX Points loaded:", points.length);
@@ -772,43 +780,43 @@ async function createDriversAndTeams(maxDrivers = 20) {
     // === Criar todos os drivers ===
     const allDrivers = [
         // RED BULL
-        new Driver("Max Verstappen", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB20", redbull_car.clone(), redBull, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 40),
-        new Driver("Yuki Tsunoda", "tsu", 22, "Japan", 16, 0, new Car(22, "VCARB01", redbullvisa_car.clone(), redBull, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 80),
+        new Driver("Max Verstappen", "/assets/drivers/verstappen.png", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB20", redbull_car.clone(), redBull, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 40),
+        new Driver("Yuki Tsunoda", "/assets/drivers/tsunoda.png", "tsu", 22, "Japan", 16, 0, new Car(22, "RB20", redbull_car.clone(), redBull, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 80),
 
         // MCLAREN
-        new Driver("Oscar Piastri", "pia", 81, "Australia", 2, 0, new Car(81, "MCL35M", mclaren_car.clone(), mclaren, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
-        new Driver("Lando Norris", "nor", 4, "United Kingdom", 7, 0, new Car(4, "MCL35M", mclaren_car.clone(), mclaren, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
+        new Driver("Oscar Piastri", "/assets/drivers/piastri.png", "pia", 81, "Australia", 2, 0, new Car(81, "MCL35M", mclaren_car.clone(), mclaren, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
+        new Driver("Lando Norris", "/assets/drivers/norris.png", "nor", 4, "United Kingdom", 7, 0, new Car(4, "MCL35M", mclaren_car.clone(), mclaren, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
 
         // MERCEDES
-        new Driver("Kimi Antonelli", "ant", 7, "Italy", 3, 0, new Car(7, "W15", mercedes_car.clone(), mercedes, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
-        new Driver("George Russell", "rus", 63, "United Kingdom", 6, 0, new Car(63, "W15", mercedes_car.clone(), mercedes, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
+        new Driver("Kimi Antonelli", "/assets/drivers/antonelli.png", "ant", 7, "Italy", 3, 0, new Car(7, "W15", mercedes_car.clone(), mercedes, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
+        new Driver("George Russell", "/assets/drivers/russell.png", "rus", 63, "United Kingdom", 6, 0, new Car(63, "W15", mercedes_car.clone(), mercedes, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
 
         // FERRARI
-        new Driver("Lewis Hamilton", "ham", 44, "United Kingdom", 4, 7, new Car(44, "SF23", ferrari_car.clone(), ferrari, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
-        new Driver("Charles Leclerc", "lec", 16, "Monaco", 5, 0, new Car(16, "SF23", ferrari_car.clone(), ferrari, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
+        new Driver("Lewis Hamilton", "/assets/drivers/hamilton.png", "ham", 44, "United Kingdom", 4, 7, new Car(44, "SF23", ferrari_car.clone(), ferrari, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
+        new Driver("Charles Leclerc", "/assets/drivers/leclerc.png", "lec", 16, "Monaco", 5, 0, new Car(16, "SF23", ferrari_car.clone(), ferrari, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
 
         // ASTON MARTIN
-        new Driver("Fernando Alonso", "alo", 14, "Spain", 9, 2, new Car(14, "AMR24", astonmartin_car.clone(), astonMartin, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
-        new Driver("Lance Stroll", "str", 18, "Canada", 10, 0, new Car(18, "AMR24", astonmartin_car.clone(), astonMartin, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 55),
+        new Driver("Fernando Alonso", "/assets/drivers/alonso.png", "alo", 14, "Spain", 9, 2, new Car(14, "AMR24", astonmartin_car.clone(), astonMartin, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
+        new Driver("Lance Stroll", "/assets/drivers/stroll.png", "str", 18, "Canada", 10, 0, new Car(18, "AMR24", astonmartin_car.clone(), astonMartin, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 55),
 
         // WILLIAMS
-        new Driver("Alexander Albon", "alb", 23, "Thailand", 11, 0, new Car(23, "FW46", williams_car.clone(), williams, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
-        new Driver("Carlos Sainz", "sai", 55, "Spain", 8, 0, new Car(55, "SF23", williams_car.clone(), williams, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 70),
+        new Driver("Alexander Albon", "/assets/drivers/albon.png", "alb", 23, "Thailand", 11, 0, new Car(23, "FW46", williams_car.clone(), williams, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
+        new Driver("Carlos Sainz", "/assets/drivers/sainz.png", "sai", 55, "Spain", 8, 0, new Car(55, "SF23", williams_car.clone(), williams, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 70),
 
        // ALPINE
-        new Driver("Pierre Gasly", "gas", 10, "France", 12, 0, new Car(10, "A524", alpine_car.clone(), alpine, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
-        new Driver("Franco Colapinto", "col", 29, "Argentina", 13, 0, new Car(29, "A524", alpine_car.clone(), alpine, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 55),
+        new Driver("Pierre Gasly", "/assets/drivers/gasly.png", "gas", 10, "France", 12, 0, new Car(10, "A524", alpine_car.clone(), alpine, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
+        new Driver("Franco Colapinto", "/assets/drivers/colapinto.png", "col", 29, "Argentina", 13, 0, new Car(29, "A524", alpine_car.clone(), alpine, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 55),
 
         // HAAS
-        new Driver("Esteban Ocon", "oco", 31, "France", 14, 0, new Car(31, "VF-24", haas_car.clone(), haas, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 110),
-        new Driver("Oliver Bearman", "bea", 38, "United Kingdom", 15, 0, new Car(38, "VF-24", haas_car.clone(), haas, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 70), 
+        new Driver("Esteban Ocon", "/assets/drivers/ocon.png", "oco", 31, "France", 14, 0, new Car(31, "VF-24", haas_car.clone(), haas, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 110),
+        new Driver("Oliver Bearman", "/assets/drivers/bearman.png", "bea", 38, "United Kingdom", 15, 0, new Car(38, "VF-24", haas_car.clone(), haas, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 70), 
         // RACING BULLS
-        new Driver("Liam Lawson", "law", 40, "New Zealand", 17, 0, new Car(40, "VCARB01", redbullvisa_car.clone(), racingBulls, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
-        new Driver("Isack Hadjar", "had", 20, "France", 20, 0, new Car(20, "A524", redbullvisa_car.clone(), racingBulls, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
+        new Driver("Liam Lawson", "/assets/drivers/lawson.png", "law", 40, "New Zealand", 17, 0, new Car(40, "VCARB01", redbullvisa_car.clone(), racingBulls, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
+        new Driver("Isack Hadjar", "/assets/drivers/hadjar.png", "had", 20, "France", 20, 0, new Car(20, "A524", redbullvisa_car.clone(), racingBulls, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
 
         // KICK SAUBER
-        new Driver("Nico Hulkenberg", "hul", 27, "Germany", 18, 0, new Car(27, "C44", kicksauber_car.clone(), kickSauber, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
-        new Driver("Gabriel Bortoleto", "bor", 5, "Brazil", 19, 0, new Car(5, "C44", kicksauber_car.clone(), kickSauber, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
+        new Driver("Nico Hulkenberg", "/assets/drivers/hulkenberg.png", "hul", 27, "Germany", 18, 0, new Car(27, "C44", kicksauber_car.clone(), kickSauber, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
+        new Driver("Gabriel Bortoleto", "/assets/drivers/bortoleto.png", "bor", 5, "Brazil", 19, 0, new Car(5, "C44", kicksauber_car.clone(), kickSauber, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
     ]
 
     // Limits the number of pilots
@@ -971,12 +979,6 @@ function renderScoreboard(drivers: Driver[]): void {
 
     row.innerHTML = `
         <div class="position-container p-2">
-            <p class="eye-tracker" style="cursor: pointer" title="Seguir ${driver.acronym}">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="16" fill="currentColor" class="bi bi-eye" viewBox="0 0 16 16">
-                    <path d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8M1.173 8a13 13 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5s3.879 1.168 5.168 2.457A13 13 0 0 1 14.828 8q-.086.13-.195.288c-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5s-3.879-1.168-5.168-2.457A13 13 0 0 1 1.172 8z"/>
-                    <path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5M4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0"/>
-                </svg>
-            </p>
             <p class="text-center position">${driver.position}</p>
         </div>
         <img class="team-logo mx-2" src="${driver.car.team.logo}" alt="Team Logo">
@@ -996,40 +998,20 @@ function renderScoreboard(drivers: Driver[]): void {
     }, i * 100);
 
     // Event listener para seguir/parar de seguir
-    const positionContainer = row.querySelector(".position-container") as HTMLElement;
-    const eyeTracker = row.querySelector(".eye-tracker") as HTMLElement;
 
-    positionContainer.addEventListener("click", () => {
-        if (currentFollowDriver === driver) {
-            // Parar de seguir
-            currentFollowDriver = null;
-            driver.showLabel();
-            driver.showLine();
-            controls.enabled = true;
-            eyeTracker.classList.remove("active");
-            positionContainer.title = `Seguir ${driver.acronym}`;
-        } else {
+    row.addEventListener('click', () => {
+    if (currentDetailDriver === driver) {
+        detailsPanel!.style.display = 'none';
+        currentDetailDriver = null;
+        camViewEnabled = false;
+        if (detailCamRenderer) detailCamRenderer.domElement.style.display = 'none';
+        const labelCam = detailsPanel!.querySelector('.label-cam') as HTMLElement;
+        if (labelCam) labelCam.style.display = 'none';
+    } else {
+        showDriverDetails(driver);
+    }
+    });
 
-            // Reativar anterior
-            if (currentFollowDriver) {
-                currentFollowDriver.showLabel();
-                currentFollowDriver.showLine();
-
-                // Restaurar ícone do anterior
-                const allEyes = document.querySelectorAll(".eye-tracker.active");
-                allEyes.forEach((svg) => {
-                    svg.classList.remove("active");
-                });
-            }
-
-            currentFollowDriver = driver;
-            driver.hideLabel();
-            driver.hideLine();
-            controls.enabled = false;
-            eyeTracker.classList.add("active");
-            positionContainer.title = "Parar de seguir";
-        }
-        });
     });
 }
 
@@ -1066,9 +1048,11 @@ function updateLap(lap: Number) {
 }
 
 function onRender(ts, frame): void {
+    const delta = clock.getDelta();
+
     if (!frame) {
         if (controls)
-            controls.update(clock.getDelta());
+            controls.update(delta);
         globe.update();
     }
 
@@ -1093,7 +1077,9 @@ function onRender(ts, frame): void {
 
     if (renderer) {
         if (trackCurve && drivers.length > 0) {
-            trackTime += 0.0009;
+            const speedFactor = 0.02; 
+            trackTime += delta * speedFactor;
+
             if (trackTime > 1) trackTime = 0;
 
             // Add null check for trackCurve
@@ -1103,8 +1089,6 @@ function onRender(ts, frame): void {
                 if (!trackCurve || curvePoints.length === 0 || t.length === 0 || n.length === 0 || b.length === 0) {
                     return;
                 }
-
-
 
                 const spacing = 40;
                 const idx = Math.max(0, Math.min(ls, Math.floor((trackTime * ls - index * spacing + ls) % ls)));
@@ -1120,6 +1104,11 @@ function onRender(ts, frame): void {
                     if(currentLap > maxLap) currentLap = 0;
                     updateLap(currentLap);
                 }
+                
+                if (idx === 0) {
+                    driver.lap++;
+                }
+
                 const pos = curvePoints[idx].clone();
                 if (pos) {
                     normal = new Vector3();
@@ -1185,16 +1174,20 @@ function onRender(ts, frame): void {
             const cameraPos = carPos.clone().add(offsetBehind).add(offsetAbove);
             const lookAt = carPos.clone().add(forward.clone().multiplyScalar(0.1 * scale));
 
-            if(cockpitView) {
-                currentFollowDriver.camera.position.set(-3, 0, 2);
-            } else {
-                currentFollowDriver.camera.position.set(-20, 0, 90);
-            }
+            // if(cockpitView) {
+            //     currentFollowDriver.camera.position.set(-3, 0, 2);
+            // } else {
+            //     currentFollowDriver.camera.position.set(-20, 0, 90);
+            // }
 
             rendererCamera = currentFollowDriver.camera;
         }
         else{
             rendererCamera = camera;
+        }
+
+        if (detailCamRenderer && currentDetailDriver && camViewEnabled) {
+            detailCamRenderer.render(scene, currentDetailDriver.camera);
         }
 
         renderer.render(scene, rendererCamera);
@@ -1262,5 +1255,78 @@ function onSelect(event) {
         arPlacingGeomap = false;
     }
 }
+
+function showDriverDetails(driver: Driver) {
+  if (!detailsPanel) return;
+
+  currentDetailDriver = driver;
+  detailsPanel.style.display = 'block';
+
+  const camContainer = detailsPanel.querySelector('.cam-view') as HTMLElement;
+  const labelCam = camContainer.querySelector('.label-cam') as HTMLElement;
+
+  // Inicializa o renderer da mini-câmera
+  if (!detailCamRenderer) {
+    detailCamRenderer = new WebGLRenderer({ antialias: true, alpha: true });
+    detailCamRenderer.domElement.style.width   = '100%';
+    detailCamRenderer.domElement.style.height  = '100%';
+    detailCamRenderer.domElement.style.display = camViewEnabled ? 'block' : 'none';
+    camContainer.appendChild(detailCamRenderer.domElement);
+  }
+  // Ajusta resolução interna do renderer
+  const w = camContainer.clientWidth, h = camContainer.clientHeight;
+  detailCamRenderer.setSize(w, h, false);
+
+  // Usa o SVG como botão de toggle da mini-câmera
+  if (!labelCam.dataset.toggleInitialized) {
+    labelCam.style.cursor = 'pointer';
+    labelCam.addEventListener('click', () => {
+      camViewEnabled = !camViewEnabled;
+      detailCamRenderer!.domElement.style.display = camViewEnabled ? 'block' : 'none';
+      labelCam.style.display = camViewEnabled ? 'none' : 'flex';
+    });
+    labelCam.dataset.toggleInitialized = 'true';
+  }
+  // Estado inicial do SVG
+  labelCam.style.display = camViewEnabled ? 'none' : 'flex';
+
+  // Preenche os campos de texto/imagem/etc
+  const info = detailsPanel.querySelector('.driver-info')!;
+  info.querySelector('p')!.textContent = String(driver.position);
+  info.querySelector('.bar')!.style.backgroundColor = driver.car.team.color;
+  info.querySelector('p.text-uppercase')!.textContent = driver.name.split(' ')[1].toUpperCase();
+
+  const drsDiv = detailsPanel.querySelector('.drs')!;
+  drsDiv.classList.toggle('active', !!driver.car.drs);
+
+  const imgEl = detailsPanel.querySelector('.driver-img img')!;
+  imgEl.src = driver.img;
+  imgEl.alt = driver.name;
+
+  detailsPanel.querySelector('.lap p')!.textContent = `${driver.lap}/${maxLap}`;
+  detailsPanel.querySelector('.fastest-lap-time p:last-child')!.textContent = driver.fastestLap || '---';
+
+  // Botão de follow mantém só o toggle de seguir/parar, sem mexer em col-8
+  const camBtn = detailsPanel.querySelector('.cam-button')!;
+  camBtn.onclick = (e) => {
+    e.stopPropagation();
+    if (currentFollowDriver === driver) {
+        currentFollowDriver = null;
+        controls.enabled = true;
+        camBtn.classList.remove('active');
+    } else {
+      if (currentFollowDriver) {
+        currentFollowDriver.showLabel();
+        currentFollowDriver.showLine();
+      }
+      currentFollowDriver = driver;
+      driver.hideLabel();
+      driver.hideLine();
+      controls.enabled = false;
+      camBtn.classList.add('active');
+    }
+  };
+}
+
 
 window.addEventListener("load", init);

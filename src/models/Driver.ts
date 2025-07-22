@@ -4,6 +4,7 @@ import { tan } from "three/tsl";
 
 export class Driver {
   name: string;
+  img: string;
   acronym: string;
   driverNumber: number;
   nationality: string;
@@ -11,13 +12,15 @@ export class Driver {
   points: number;
   interval?: string;
   car: Car;
+  lap: number = 0;
+  fastestLap: string = "1.30.237";
   label?: Sprite;
   line?: Line;
   camera: PerspectiveCamera;
   spacing?: number;
   private _intervalTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(nome: string, acronym: string, driverNumber: number, nationality: string, position: number, points: number, car: Car, camera: PerspectiveCamera, spacing?: number) {
+  constructor(nome: string, img: string, acronym: string, driverNumber: number, nationality: string, position: number, points: number, car: Car, camera: PerspectiveCamera, spacing?: number) {
     this.name = nome;
     this.acronym = acronym;
     this.driverNumber = driverNumber;
@@ -27,6 +30,7 @@ export class Driver {
     this.car = car;
     this.camera = camera;
     this.spacing = spacing;
+    this.img = img;
 
     if(!this.interval) {
       if(this.position == 1) {
