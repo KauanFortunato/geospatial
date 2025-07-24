@@ -5,8 +5,13 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-LN+7fdVzj6u52u30Kp6M/trliBMCMKTyK833zpbD+pXdCLuTusPj697FH4R/5mcr" crossorigin="anonymous">
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="./src/styles.css">
+
     <title>Earth</title>
   </head>
+
+  <div id="loading-screen" class="loading-overlay position-absolute top-50 start-50 translate-middle d-flex justify-content-center align-items-center"></div>
+  
   <body>
     <div id="container"></div>
     <div id="credits"></div>
@@ -38,53 +43,71 @@
     </div>
 
     <div id="driver-details" class="position-absolute">
-      <div class="details-container d-flex w-100 justify-content-between align-items-center px-3 py-1">
+      <div class="details-container d-flex w-100 justify-content-between align-items-center px-3 py-1 position-relative">
         <div class="driver-info d-flex align-items-center">
-          <p class="m-0">1</p>
+          <p class="m-0">--</p>
           <div class="bar mx-2" style="background-color: #1E41FF;"></div>
-          <p class="m-0 text-uppercase">Verstappen</p>
-        </div>
+          <p class="m-0 text-uppercase">-----</p>
 
-        <div class="car-info d-flex">
-          <div class="cam-button me-3">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="bi bi-camera-video-fill" viewBox="0 0 16 16">
-              <path fill-rule="evenodd" d="M0 5a2 2 0 0 1 2-2h7.5a2 2 0 0 1 1.983 1.738l3.11-1.382A1 1 0 0 1 16 4.269v7.462a1 1 0 0 1-1.406.913l-3.111-1.382A2 2 0 0 1 9.5 13H2a2 2 0 0 1-2-2z"/>
-            </svg>
-          </div>
-          <div class="drs active px-1">
+          <div class="drs px-1 d-flex justify-content-center align-items-center ms-2">
             <p class="m-0">DRS</p>
           </div>
         </div>
+
+        <div class="car-info d-flex align-content-center close-button">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="#9a9697" class="bi bi-x ic-details position-absolute translate-middle" style="right: 0px; top: 15px;" viewBox="0 0 16 16">
+            <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708"/>
+          </svg>
+        </div>
       </div>
 
-      <div class="driver-statistics d-flex p-1 w-100">
-        <div class="driver-img ratio-1x1 p-1 col">
+      <div class="driver-statistics d-flex p-1 w-100" style="display: none;">
+        <div class="driver-img ratio-1x1 p-1 col position-relative">
           <img src="/assets/drivers/verstappen.png" class="ratio-1x1 w-100" alt="Driver image">
+
+          <div class="cam-button d-flex justify-content-center align-content-center translate-middle">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-bullseye" viewBox="0 0 16 16">
+              <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/>
+              <path d="M8 13A5 5 0 1 1 8 3a5 5 0 0 1 0 10m0 1A6 6 0 1 0 8 2a6 6 0 0 0 0 12"/>
+              <path d="M8 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6m0 1a4 4 0 1 0 0-8 4 4 0 0 0 0 8"/>
+              <path d="M9.5 8a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/>
+            </svg>
+          </div>
         </div>
 
-        <div class="driver-timings p-3 col">
+        <div class="driver-timings d-flex flex-column justify-content-around align-content-center p-3 col">
           <div class="lap separation d-flex justify-content-between">
             <b class="lap-label m-0">LAP</b>
-            <p class="m-0">0/72</p>
+            <p class="m-0">--/--</p>
           </div>
           
           <div class="fastest-lap-time separation w-100 d-flex flex-column mt-3">
             <p class="label m-0">Fastest LAP time</p>
-            <p class="m-0">2.15.231</p>
+            <p class="m-0">-.--.---</p>
           </div>
         </div>
 
         <div class="cam-view col position-relative">
-          <div class="label-cam position-absolute top-50 start-50 translate-middle">
-            <svg xmlns="http://www.w3.org/2000/svg" width="45" height="45" fill="#a6a6a6" class="bi bi-camera-fill" viewBox="0 0 16 16">
-              <path d="M10.5 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"/>
-              <path d="M2 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1.172a2 2 0 0 1-1.414-.586l-.828-.828A2 2 0 0 0 9.172 2H6.828a2 2 0 0 0-1.414.586l-.828.828A2 2 0 0 1 3.172 4zm.5 2a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1m9 2.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"/>
+          <div class="label-cam position-absolute top-50 start-50 translate-middle d-flex flex-column justify-content-center align-items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="45" height="45" fill="currentColor" class="bi bi-camera-video-fill" viewBox="0 0 16 16">
+              <path fill-rule="evenodd" d="M0 5a2 2 0 0 1 2-2h7.5a2 2 0 0 1 1.983 1.738l3.11-1.382A1 1 0 0 1 16 4.269v7.462a1 1 0 0 1-1.406.913l-3.111-1.382A2 2 0 0 1 9.5 13H2a2 2 0 0 1-2-2z"/>
             </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="45" height="45" fill="currentColor" class="bi bi-camera-video-off-fill" viewBox="0 0 16 16">
+              <path fill-rule="evenodd" d="M10.961 12.365a2 2 0 0 0 .522-1.103l3.11 1.382A1 1 0 0 0 16 11.731V4.269a1 1 0 0 0-1.406-.913l-3.111 1.382A2 2 0 0 0 9.5 3H4.272zm-10.114-9A2 2 0 0 0 0 5v6a2 2 0 0 0 2 2h5.728zm9.746 11.925-10-14 .814-.58 10 14z"/>
+            </svg>
+            <p class="text-center label">Camera Preview</p>
           </div>
         </div>
       </div>
     </div>
 
+    <script>
+      document.documentElement.classList.add('loading');
+      window.addEventListener('DOMContentLoaded', () => {
+        document.documentElement.classList.remove('loading');
+        document.documentElement.classList.add('loaded');
+      });
+    </script>
     <script type="module" src="/src/main/index.ts"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js" integrity="sha384-ndDqU0Gzau9qJ1lfW4pNLlhNTkCfHzAVBReH9diLvGRem5+R9g2FzA8ZGN954O5Q" crossorigin="anonymous"></script>
   </body>

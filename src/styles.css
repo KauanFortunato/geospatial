@@ -5,7 +5,7 @@
   --color-bg-header: rgb(14, 18, 26);
   --color-border: rgb(37, 40, 47);
   --color-lap-title: rgb(140, 139, 149);
-  --color-bg-body: rgba(23, 25, 36, 0.856);
+  --color-bg-body: rgba(23, 25, 36, 0.904);
   --color-bg-position: rgb(14, 13, 19);
   --color-tire: rgb(255, 238, 0);
   --color-first-position-bg: rgb(201, 7, 5);
@@ -27,6 +27,13 @@
   src: url('/assets/fonts/Formula1-Bold_web.ttf') format('truetype');
   font-weight: bold;
   font-style: normal;
+}
+
+html.loading {
+  visibility: hidden;
+}
+html.loaded {
+  visibility: visible;
 }
 
 * {
@@ -120,6 +127,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  height: calc(5vh - 8px);
   border-radius: 5px;
   margin-bottom: 1px;
   cursor: pointer;
@@ -129,8 +137,9 @@ body {
 }
 
 .driver-row:hover {
-  scale: 1.1;
+  scale: 1.05;
   background-color: var(--color-bg-header);
+  z-index: 999;
 }
 
 .driver-row.show {
@@ -243,11 +252,11 @@ body {
   position: absolute;
   right: 30px;
   bottom: 30px;
-  border-radius: 10px;
 }
 
 .details-container {
-  background-color: var(--color-bg-body);
+  background-color: var(--color-border);
+  border-radius: 10px 10px 0px 0px;
 }
   .details-container p {
     color: var(--color-text-light);
@@ -262,6 +271,7 @@ body {
 .details-container .drs {
   border: 2px solid #9a9697;
   font-size: 12px;
+  user-select: none;
 }
   .details-container .drs.active {
     border: 2px solid #5daf5a;
@@ -276,12 +286,17 @@ body {
     color: #5daf5a;
   }
 
-.details-container .cam-button {
+.details-container .close-button {
   cursor: pointer;
+}
+
+.ic-details {
+  border: 2px solid #9a9697;
 }
 
 .driver-statistics {
   background-color: var(--color-bg-header);
+  border-radius: 0px 0px 10px 10px;
 }
 
 .driver-statistics .label {
@@ -289,14 +304,24 @@ body {
 }
 
 .driver-statistics .driver-img {
-  border: 2px solid var(--color-text-light);
-  border-radius: 5px;
+  border-right: 4px solid var(--color-border);
   aspect-ratio: 1/1;
 }
   .driver-statistics .driver-img img {
     aspect-ratio: 1/1;
     object-fit: cover;
   }
+
+.driver-statistics .cam-button {
+  cursor: pointer;
+  position: absolute;
+  left: 15px;
+  top: 15px;
+}
+
+.driver-statistics .driver-timings {
+    border-right: 4px solid var(--color-border);
+}
 
 .driver-statistics .driver-timings .separation {
   border-bottom: 1px solid #292838;
@@ -314,6 +339,34 @@ body {
     transform: translate(-50%, -50%);
     z-index: 10;
   }
+
+.driver-statistics .label-cam {
+  transform-origin: center;
+  /* transition: transform 0.3s; */
+}
+  .driver-statistics .label-cam svg, .driver-statistics .label-cam p {
+    fill: var(--color-lap-title);
+  }
+
+.driver-statistics .label-cam .bi-camera-video-off-fill, .driver-statistics .label-cam.active .bi-camera-video-fill{
+  display: none;
+}
+
+.driver-statistics .label-cam.active {
+  top: 0px !important;
+  left: 5px !important;
+  transform: scale(0.4) translate(-50%,-50%) !important;
+}
+
+.driver-statistics .label-cam.active .bi-camera-video-off-fill {
+  display: block;
+} 
+
+.driver-statistics .label-cam.active .label {
+  display: none;
+}
+
+/* --------------------------- */
 
 @media (max-width: 1440px) {
    #scoreboard {
@@ -339,4 +392,18 @@ body {
   .checkbox-label {
     display: block;
   }
+}
+
+@keyframes blink-red {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.cam-button.active svg {
+  fill: red;  
+  animation: blink-red 1s infinite ease-in-out;
 }

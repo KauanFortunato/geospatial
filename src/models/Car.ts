@@ -13,12 +13,13 @@ export class Car {
   altFilter: MedianPassFilter;
   tire: String;
 
-  constructor(number: number, modelo: string, car: Object3D, team: Team, tire: String) {
+  constructor(number: number, modelo: string, car: Object3D, team: Team, tire: String, drs: boolean = false) {
     this.number = number;
     this.model = modelo;
     this.team = team;
     this.car = car;
     this.tire = tire;
+    this.drs = drs;
 
     this.altFilter = new MedianPassFilter(9);
     this.trackPos = 0;

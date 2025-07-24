@@ -88,7 +88,14 @@ export class Globe {
 //   controls: GlobeControls;
   private _initialInteractionPerformed: boolean = false;
 
+  public tilesLoaded: Promise<void>;
+  private _resolveTiles!: () => void;
+
   constructor(scene: Scene, cameras: PerspectiveCamera[], renderer: WebGLRenderer, disableControls: boolean = false) {
+    this.tilesLoaded = new Promise(resolve => {
+      this._resolveTiles = resolve;
+    });
+
     this.scene = scene;
     this.cameras = cameras;
     this.renderer = renderer;
@@ -115,6 +122,11 @@ export class Globe {
     this.tiles.registerPlugin(new UpdateOnChangePlugin());
     this.tiles.registerPlugin(new UnloadTilesPlugin());
     this.tiles.registerPlugin(new TilesFadePlugin());
+    
+    this.tiles.addEventListener('load-model', () => {
+      this._resolveTiles();
+    });
+
     // this.tiles.registerPlugin(new SkipLodPlugin());
     // this.tiles.registerPlugin(new GlobeClippingPlugin());
     this.tiles.registerPlugin(new TileCreasedNormalsPlugin({creaseAngle:45}));

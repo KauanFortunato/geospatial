@@ -10,6 +10,7 @@ export class Driver {
   nationality: string;
   position: number;
   points: number;
+  lastIdx: number = 0;
   interval?: string;
   car: Car;
   lap: number = 0;

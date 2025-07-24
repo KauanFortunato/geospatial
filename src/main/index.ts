@@ -1,5 +1,3 @@
-import "../styles.css"; // Import the CSS file
-
 import {
     Mesh,
     PCFSoftShadowMap,
@@ -59,6 +57,7 @@ import CameraControls from "camera-controls";
 import { loadCarModel } from "../utils/modelLoader";
 import { TilesFadePlugin } from "3d-tiles-renderer/plugins";
 import { update } from "three/examples/jsm/libs/tween.module.js";
+import { Const } from "three/tsl";
 
 const subsetOfTHREE = {
     Vector2: Vector2,
@@ -74,12 +73,41 @@ const subsetOfTHREE = {
 
 CameraControls.install({ THREE: subsetOfTHREE });
 
+// ————————————————————————————————
+// Global Configuration
+// ————————————————————————————————
+
+const GLOBE_CONTAINER = new Group();
+const INITIAL_POSITIONS: Vector3[] = [];
+const DRIVERS: Driver[] = [];
+const LABEL_OFFSET = new Vector3(0, 0, 20);
+
+const LOD_CAM_CONFIG = {
+    numCols: 1,
+    numRows: 1,
+    fov: 155,
+    height: 350,
+    aspectRatio: 1,
+}
+
+const CONFIG = {
+  scale: 1/1700, // Scale factor for the globe
+  globalScale: 1, // Global scale for the globe, used for ECEF coordinates
+  coordinate: { longitude: -9.394761567056307, latitude: 38.75025825516866 }, // Longitude and Latitude in degrees of the globe center
+  rayOriginAlt: 10000, // Altitude of the ray origin in meters
+  flags: {
+    enableRecording: false, // Enable recording
+    showOrigin:      false, // Show the origin axes helper
+    showLodHelpers:  false, // Show LOD cameras helpers
+    useClipping:     false, // Clip the globe
+  },
+} as const;
+
 let controls: CameraControls;
-let globalScale = 1;
 let globe: Globe;
 let renderer: WebGLRenderer;
 let camera: PerspectiveCamera;
-let rendererCamera: Camera; 
+let rendererCamera: Camera;
 let scene: Scene;
 let trackCurve: CatmullRomCurve3 | null = null;
 let trackTime = 0;
@@ -89,26 +117,11 @@ let reticle: Mesh | null = null;
 let hitTestSourceRequested = false;
 let hitTestSource: XRHitTestSource | null = null;
 let lodCameras: PerspectiveCamera[] = [];
-const globeContainer = new Group();
-const initialPositions: Vector3[] = [];
-const drivers: Driver[] = [];
-const labelOffset = new Vector3(0, 0, 20);
+
 let xrRig: Group;
 
 let recorder;
-const enableRecordingFeatures = false;
-const showOrigin = false;
-const showLodCamHelpers = false;
-const useClipping = false;
-const scale = 1 / 1700;
-const longitude = -9.394761567056307; // degrees
-const latitude = 38.75025825516866; // degrees
-const numLodCamCols = 1;
-const numLodCamRows = 1;
-let lodCamFOV = 155;
-let lodCamHeight = 350;
-const lodCamAspectRatio = 1;
-const rayOriginAlt = 10000;
+
 const clock = new Clock();
 let transform;
 
@@ -126,7 +139,7 @@ const maxDrivers = 20;
 const maxLap = 72;
 let currentLap: number = 0;
 
-const centerECEF = new Geodetic(radians(longitude), radians(latitude), 0).toECEF().multiplyScalar(globalScale);
+const centerECEF = new Geodetic(radians(CONFIG.coordinate.longitude), radians(CONFIG.coordinate.latitude), 0).toECEF().multiplyScalar(CONFIG.globalScale);
 const cameraUp = centerECEF.clone().normalize();
 const cameraRaycaster = new Raycaster();
 const mouseNormalBuff = new Vector2();
@@ -142,13 +155,13 @@ const rawLLA = [
 ];
 
 const cameraPositions: Vector3[] = [
-    new Vector3(4914449.702275728, -812735.0475000107, 3970834.0878650616).multiplyScalar(globalScale),
-    new Vector3(4914668.737085846, -813010.9913910049, 3971105.824077781).multiplyScalar(globalScale),
+    new Vector3(4914449.702275728, -812735.0475000107, 3970834.0878650616).multiplyScalar(CONFIG.globalScale),
+    new Vector3(4914668.737085846, -813010.9913910049, 3971105.824077781).multiplyScalar(CONFIG.globalScale),
 ];
 
 for (const [lon, lat, alt] of rawLLA) {
     const geo = new Geodetic(radians(lon), radians(lat), alt);
-    initialPositions.push(geo.toECEF());
+    INITIAL_POSITIONS.push(geo.toECEF());
 }
 
 // Catmullrom
@@ -234,195 +247,142 @@ function isMobileDevice() {
   return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
-function init(): void {
+async function init(): Promise<void> {
+    await loadLoadingScreen();
+
     if (isMobileDevice()) {
-        lodCamFOV = 55;
-        lodCamHeight = 1500;
+        LOD_CAM_CONFIG.fov = 55;
+        LOD_CAM_CONFIG.height = 1500;
     }
     console.log("Mobile: ", isMobileDevice());
 
     setupGraphicsEngine();
     setupXR();
     setupLight();
-    setupMainCamera(); // Setup main camera
-    setupLODCameras(); // Setup LOD cameras - Hires LOD Camera force tiles to load at full resolution & detail.
+    setupMainCamera();
+    setupLODCameras();
     setupCameraControls();
     updateLap(currentLap);
 
-    if (enableRecordingFeatures)
+    if (CONFIG.flags.enableRecording) {
         setupRecordingFeatures();
+    }
 
-    // Setup georeferenced globe
     globe = new Globe(scene, lodCameras, renderer, true);
-    globeContainer.add(globe.tiles.group);
-    scene.add(globeContainer);
+    GLOBE_CONTAINER.add(globe.tiles.group);
+    scene.add(GLOBE_CONTAINER);
 
     const enuMatrix = new Matrix4();
-    globe.tiles.ellipsoid.getEastNorthUpFrame(MathUtils.degToRad(latitude), MathUtils.degToRad(longitude), enuMatrix);
+    globe.tiles.ellipsoid.getEastNorthUpFrame(
+        MathUtils.degToRad(CONFIG.coordinate.latitude),
+        MathUtils.degToRad(CONFIG.coordinate.longitude),
+        enuMatrix
+    );
     enuMatrix.multiply(new Matrix4().makeRotationFromEuler(new Euler(Math.PI / 2, Math.PI / 2, 0)));
-
     transform = enuMatrix.clone().invert();
-    globe.tiles.group.applyMatrix4(transform); // Rotate and Position the lat/lon point on group container origin
-    globeContainer.scale.setScalar(scale);  // Scale the group to the desired factor
-    globeContainer.updateMatrixWorld(true); // Update internal matrix
+    globe.tiles.group.applyMatrix4(transform);
+    GLOBE_CONTAINER.scale.setScalar(CONFIG.scale);
+    GLOBE_CONTAINER.updateMatrixWorld(true);
 
-    // Clipping planes of unit by unit, unit = 1m
     const unit = 0.9;
     const clippingPlanes = [
-        new Plane(new Vector3(unit, 0, 0), unit / 2),  // left
-        new Plane(new Vector3(-unit, 0, 0), unit / 2),  // right
-        new Plane(new Vector3(0, 0, unit), unit / 2),  // front
-        new Plane(new Vector3(0, 0, -unit), unit / 2),  // back
+        new Plane(new Vector3(unit, 0, 0), unit / 2),
+        new Plane(new Vector3(-unit, 0, 0), unit / 2),
+        new Plane(new Vector3(0, 0, unit), unit / 2),
+        new Plane(new Vector3(0, 0, -unit), unit / 2),
     ];
-    if (useClipping)
+    if (CONFIG.flags.useClipping) {
         renderer.clippingPlanes = clippingPlanes;
+    }
 
+    const globeReady = globe.tilesLoaded;
 
-    (async () => {
+    const carsReady = (async () => {
         await loadFormula1Font();
-        createDriversAndTeams(maxDrivers);
+        await createDriversAndTeams(maxDrivers);
     })();
 
-    window.addEventListener("resize", onWindowResize); // Handle window resize events   
-
-    // Load GPX data
     const gpxUrl = new URL("/assets/tracks/estoril.gpx", import.meta.url).href;
-    loadGPXasECEF(gpxUrl).then((points) => {
+    const gpxReady = (async () => {
+        const points = await loadGPXasECEF(gpxUrl);
         if (points.length > 1) {
-            console.log("GPX Points loaded:", points.length);
-            trackCurve = new CatmullRomCurve3(points, false); // false = circuito aberto
-                
+            // cria curva CatmullRom
+            trackCurve = new CatmullRomCurve3(points, false);
             for (let i = 0; i <= ls; i++) {
-               curvePoints.push(trackCurve.getPoint(i / ls));
+                curvePoints.push(trackCurve.getPoint(i / ls));
             }
-
-            let tangent;
-            const normal = new Vector3( );
-            const binormal = new Vector3( 0, 1, 0 );
-            
-            for ( let j = 0; j < lss; j ++ ) {
-
-                // to the points
-                
-                tangent = trackCurve.getTangent(  j / ls );
-                t.push( tangent.clone( ).normalize() );
-                
-                normal.crossVectors( tangent, binormal );
-                
-                normal.y = 0; // to prevent lateral slope of the road
-                
-                n.push( normal.clone( ).normalize() );
-                
-                binormal.crossVectors( normal, tangent ); // new binormal
-                b.push( binormal.clone( ).normalize() );	
-                
+            // precompute t,n,b
+            const normal = new Vector3();
+            const binormal = new Vector3(0, 1, 0);
+            for (let j = 0; j < lss; j++) {
+                const tangent = trackCurve.getTangent(j / ls).normalize();
+                t.push(tangent.clone());
+                normal.crossVectors(tangent, binormal);
+                normal.y = 0;
+                n.push(normal.clone().normalize());
+                binormal.crossVectors(normal, tangent).normalize();
+                b.push(binormal.clone());
             }
-
+            // gera malha da pista
+            const roadWidth = 8;
+            const halfW = roadWidth / 2;
+            const dw = [-halfW, -halfW * 0.6, -0.1, 0.1, halfW * 0.6, halfW];
+            const ws = dw.length - 1;
+            const vertices = new Float32Array(lss * (ws + 1) * 3);
+            const indices  = new Uint32Array(ls * ws * 6);
+            let vIdx = 0, iIdx = 0;
+            for (let j = 0; j < lss; j++) {
+                for (let i = 0; i <= ws; i++) {
+                    const base = curvePoints[j];
+                    const x = base.x + dw[i] * n[j].x;
+                    const y = base.y;
+                    const z = base.z + dw[i] * n[j].z;
+                    vertices[vIdx++] = x;
+                    vertices[vIdx++] = y;
+                    vertices[vIdx++] = z;
+                }
+            }
+            for (let j = 0; j < ls; j++) {
+                for (let i = 0; i < ws; i++) {
+                    const a = j * (ws + 1) + i;
+                    const b = (j + 1) * (ws + 1) + i;
+                    const c = b + 1;
+                    const d = a + 1;
+                    indices[iIdx++] = a; indices[iIdx++] = b; indices[iIdx++] = c;
+                    indices[iIdx++] = a; indices[iIdx++] = c; indices[iIdx++] = d;
+                }
+            }
+            const geom = new BufferGeometry();
+            geom.setAttribute("position", new BufferAttribute(vertices, 3));
+            geom.setIndex(new BufferAttribute(indices, 1));
+            geom.computeVertexNormals();
+            const roadMesh = new Mesh(geom, new MeshStandardMaterial({ color: 0xfcba03 }));
+            globe.tiles.group.add(roadMesh);
         } else {
             console.warn("Nenhum ponto GPX carregado");
         }
+    })();
 
-        if(trackCurve) {
-            // Road
-            {
-                const roadWidth = 8;
-                const halfWidth = roadWidth / 2;
-                const dw = [-halfWidth, -halfWidth * 0.6, -0.1, 0.1, halfWidth * 0.6, halfWidth]; // largura da pista dividida
+    await Promise.all([globeReady, carsReady, gpxReady]);
 
-                const ws = dw.length - 1;
-                const wss = ws + 1;
+    // Hidde loading screen
+    const loadingContainer = document.getElementById("loading-screen");
+    if (loadingContainer) {
+        loadingContainer.classList.add("hidden");
+    }
 
-                const vertices = new Float32Array(lss * wss * 3);
-                const indices = new Uint32Array(ls * ws * 6);
-                let vIdx = 0;
-
-                for (let j = 0; j < lss; j++) {
-                    for (let i = 0; i < wss; i++) {
-                        const offset = dw[i];
-                        const base = curvePoints[j];
-                        const nx = n[j].x, nz = n[j].z;
-                        const x = base.x + offset * nx;
-                        const y = base.y;
-                        const z = base.z + offset * nz;
-
-                        vertices[vIdx++] = x;
-                        vertices[vIdx++] = y;
-                        vertices[vIdx++] = z;
-                    }
-                }
-
-                let iIdx = 0;
-                for (let j = 0; j < ls; j++) {
-                    for (let i = 0; i < ws; i++) {
-                        const a = j * wss + i;
-                        const b = (j + 1) * wss + i;
-                        const c = (j + 1) * wss + (i + 1);
-                        const d = j * wss + (i + 1);
-
-                        indices[iIdx++] = a;
-                        indices[iIdx++] = b;
-                        indices[iIdx++] = c;
-
-                        indices[iIdx++] = a;
-                        indices[iIdx++] = c;
-                        indices[iIdx++] = d;
-                    }
-                }
-
-                const geom = new BufferGeometry();
-                geom.setAttribute("position", new BufferAttribute(vertices, 3));
-                geom.setIndex(new BufferAttribute(indices, 1));
-                geom.computeVertexNormals();
-
-                const roadMat = new MeshStandardMaterial({ color: 0xfcba03 });
-                const roadMesh = new Mesh(geom, roadMat);
-                // globe.tiles.group.add(roadMesh);
-                roadMesh.updateMatrixWorld();
-                
-                // Road2
-                {
-                    const roadThickness = 0.1;
-                    const shape = new Shape();
-                    shape.moveTo(-roadWidth/2, 0);
-                    shape.lineTo( roadWidth/2, 0);
-                    shape.lineTo( roadWidth/2, roadThickness);
-                    shape.lineTo(-roadWidth/2, roadThickness);
-                    shape.closePath();
-
-                    const extrudeSettings = {
-                        steps: ls,              // how many segments along the curve
-                        bevelEnabled: false,
-                        extrudePath: trackCurve
-                    };
-                    const roadGeo = new ExtrudeGeometry(shape, extrudeSettings);
-                    const roadMat  = new MeshNormalMaterial();
-                    const roadMesh2 = new Mesh(roadGeo, roadMat);
-                    // globe.tiles.group.add(roadMesh2);
-                    roadMesh2.updateMatrixWorld();
-                }
-            }
-        }
-    });
-
-    // Camera controls
+    window.addEventListener("resize", onWindowResize);
     document.getElementById("camera-position-1")?.addEventListener("click", () => {
-        // animateCameraTo(cameraPositions[0], cameraUp, centerECEF, 1500);
-        
-        if(enableRecordingFeatures)
-            recorder.start();
+        if (CONFIG.flags.enableRecording) recorder.start();
     });
-
+    
     document.getElementById("camera-position-2")?.addEventListener("click", () => {
-        // animateCameraTo(cameraPositions[1], cameraUp, centerECEF, 1500);
-
-        if(enableRecordingFeatures)
-            recorder.stop();
+        if (CONFIG.flags.enableRecording) recorder.stop();
     });
 
-
-    if (showOrigin)
+    if (CONFIG.flags.showOrigin) {
         scene.add(new AxesHelper(10));
-
+    }
     setInterval(updateScoreboardIntervals, 1000);
 }
 
@@ -432,9 +392,9 @@ function setupGraphicsEngine() {
         antialias: true,
         stencil: true,
         depth: true,
-        alpha: !enableRecordingFeatures,
+        alpha: !CONFIG.flags.enableRecording,
         logarithmicDepthBuffer: true,
-        preserveDrawingBuffer: enableRecordingFeatures
+        preserveDrawingBuffer: CONFIG.flags.enableRecording
     });
     renderer.toneMapping = ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1;
@@ -450,7 +410,7 @@ function setupGraphicsEngine() {
     }
     
     scene = new Scene();
-    if (enableRecordingFeatures)
+    if (CONFIG.flags.enableRecording)
         scene.background = new Color().setHex(0x00FF00);
 
     renderer.setAnimationLoop(onRender);
@@ -518,7 +478,7 @@ function setupLight() {
 }
 
 function setupMainCamera() {
-    camera = new PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.001 * scale, 13000);
+    camera = new PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000);
     camera.position.copy(new Vector3(-0.1, 0.3, 0.1));
     camera.lookAt(new Vector3(0, 0, 0));
     camera.updateProjectionMatrix();
@@ -532,21 +492,21 @@ function setupMainCamera() {
 }
 
 function setupLODCameras(heightRatio = 2) {
-    const halfHeight = (lodCamHeight / heightRatio) * Math.tan(MathUtils.degToRad(lodCamFOV) / 2);  // tan45° = 1 → = 350
-    const halfWidth = halfHeight * lodCamAspectRatio;           // rectangular footprint
+    const halfHeight = (LOD_CAM_CONFIG.height / heightRatio) * Math.tan(MathUtils.degToRad(LOD_CAM_CONFIG.fov) / 2);  // tan45° = 1 → = 350
+    const halfWidth = halfHeight * LOD_CAM_CONFIG.aspectRatio;           // rectangular footprint
 
-    for (let i = 0; i < numLodCamCols; i++) {
-        for (let j = 0; j < numLodCamRows; j++) {
-            const x = (i - (numLodCamCols - 1) / 2) * (2 * halfWidth);
-            const z = ((numLodCamRows - 1) / 2 - j) * (2 * halfHeight);
-            const cam = new PerspectiveCamera(lodCamFOV, lodCamAspectRatio, 1, lodCamHeight);
-            cam.position.set(x, lodCamHeight, z);
+    for (let i = 0; i < LOD_CAM_CONFIG.numCols; i++) {
+        for (let j = 0; j < LOD_CAM_CONFIG.numRows; j++) {
+            const x = (i - (LOD_CAM_CONFIG.numCols - 1) / 2) * (2 * halfWidth);
+            const z = ((LOD_CAM_CONFIG.numRows - 1) / 2 - j) * (2 * halfHeight);
+            const cam = new PerspectiveCamera(LOD_CAM_CONFIG.fov, LOD_CAM_CONFIG.aspectRatio, 1, LOD_CAM_CONFIG.height);
+            cam.position.set(x, LOD_CAM_CONFIG.height, z);
             cam.lookAt(new Vector3(x, 0, z));
             cam.updateMatrixWorld();
             lodCameras.push(cam);
-            globeContainer.add(cam);
+            GLOBE_CONTAINER.add(cam);
 
-            if (showLodCamHelpers) {
+            if (CONFIG.flags.showLodHelpers) {
                 let lodCamHelper = new CameraHelper(cam);
                 scene.add(lodCamHelper);
             }
@@ -780,48 +740,49 @@ async function createDriversAndTeams(maxDrivers = 20) {
     // === Criar todos os drivers ===
     const allDrivers = [
         // RED BULL
-        new Driver("Max Verstappen", "/assets/drivers/verstappen.png", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB20", redbull_car.clone(), redBull, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 40),
-        new Driver("Yuki Tsunoda", "/assets/drivers/tsunoda.png", "tsu", 22, "Japan", 16, 0, new Car(22, "RB20", redbull_car.clone(), redBull, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 80),
+        new Driver("Max Verstappen", "/assets/drivers/verstappen.png", "ver", 1, "Netherlands", 1, 0, new Car(1, "RB20", redbull_car.clone(), redBull, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 40),
+        new Driver("Yuki Tsunoda", "/assets/drivers/tsunoda.png", "tsu", 22, "Japan", 16, 0, new Car(22, "RB20", redbull_car.clone(), redBull, "M", true), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 80),
 
         // MCLAREN
-        new Driver("Oscar Piastri", "/assets/drivers/piastri.png", "pia", 81, "Australia", 2, 0, new Car(81, "MCL35M", mclaren_car.clone(), mclaren, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
-        new Driver("Lando Norris", "/assets/drivers/norris.png", "nor", 4, "United Kingdom", 7, 0, new Car(4, "MCL35M", mclaren_car.clone(), mclaren, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
+        new Driver("Oscar Piastri", "/assets/drivers/piastri.png", "pia", 81, "Australia", 2, 0, new Car(81, "MCL35M", mclaren_car.clone(), mclaren, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 50),
+        new Driver("Lando Norris", "/assets/drivers/norris.png", "nor", 4, "United Kingdom", 7, 0, new Car(4, "MCL35M", mclaren_car.clone(), mclaren, "S", true), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 45),
 
         // MERCEDES
-        new Driver("Kimi Antonelli", "/assets/drivers/antonelli.png", "ant", 7, "Italy", 3, 0, new Car(7, "W15", mercedes_car.clone(), mercedes, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
-        new Driver("George Russell", "/assets/drivers/russell.png", "rus", 63, "United Kingdom", 6, 0, new Car(63, "W15", mercedes_car.clone(), mercedes, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
+        new Driver("Kimi Antonelli", "/assets/drivers/antonelli.png", "ant", 7, "Italy", 3, 0, new Car(7, "W15", mercedes_car.clone(), mercedes, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 60),
+        new Driver("George Russell", "/assets/drivers/russell.png", "rus", 63, "United Kingdom", 6, 0, new Car(63, "W15", mercedes_car.clone(), mercedes, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 45),
 
         // FERRARI
-        new Driver("Lewis Hamilton", "/assets/drivers/hamilton.png", "ham", 44, "United Kingdom", 4, 7, new Car(44, "SF23", ferrari_car.clone(), ferrari, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
-        new Driver("Charles Leclerc", "/assets/drivers/leclerc.png", "lec", 16, "Monaco", 5, 0, new Car(16, "SF23", ferrari_car.clone(), ferrari, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
+        new Driver("Lewis Hamilton", "/assets/drivers/hamilton.png", "ham", 44, "United Kingdom", 4, 7, new Car(44, "SF23", ferrari_car.clone(), ferrari, "M", true), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 50),
+        new Driver("Charles Leclerc", "/assets/drivers/leclerc.png", "lec", 16, "Monaco", 5, 0, new Car(16, "SF23", ferrari_car.clone(), ferrari, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 45),
 
         // ASTON MARTIN
-        new Driver("Fernando Alonso", "/assets/drivers/alonso.png", "alo", 14, "Spain", 9, 2, new Car(14, "AMR24", astonmartin_car.clone(), astonMartin, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
-        new Driver("Lance Stroll", "/assets/drivers/stroll.png", "str", 18, "Canada", 10, 0, new Car(18, "AMR24", astonmartin_car.clone(), astonMartin, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 55),
+        new Driver("Fernando Alonso", "/assets/drivers/alonso.png", "alo", 14, "Spain", 9, 2, new Car(14, "AMR24", astonmartin_car.clone(), astonMartin, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 60),
+        new Driver("Lance Stroll", "/assets/drivers/stroll.png", "str", 18, "Canada", 10, 0, new Car(18, "AMR24", astonmartin_car.clone(), astonMartin, "S", true), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 55),
 
         // WILLIAMS
-        new Driver("Alexander Albon", "/assets/drivers/albon.png", "alb", 23, "Thailand", 11, 0, new Car(23, "FW46", williams_car.clone(), williams, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
-        new Driver("Carlos Sainz", "/assets/drivers/sainz.png", "sai", 55, "Spain", 8, 0, new Car(55, "SF23", williams_car.clone(), williams, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 70),
+        new Driver("Alexander Albon", "/assets/drivers/albon.png", "alb", 23, "Thailand", 11, 0, new Car(23, "FW46", williams_car.clone(), williams, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 50),
+        new Driver("Carlos Sainz", "/assets/drivers/sainz.png", "sai", 55, "Spain", 8, 0, new Car(55, "SF23", williams_car.clone(), williams, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 70),
 
        // ALPINE
-        new Driver("Pierre Gasly", "/assets/drivers/gasly.png", "gas", 10, "France", 12, 0, new Car(10, "A524", alpine_car.clone(), alpine, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
-        new Driver("Franco Colapinto", "/assets/drivers/colapinto.png", "col", 29, "Argentina", 13, 0, new Car(29, "A524", alpine_car.clone(), alpine, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 55),
+        new Driver("Pierre Gasly", "/assets/drivers/gasly.png", "gas", 10, "France", 12, 0, new Car(10, "A524", alpine_car.clone(), alpine, "M", true), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 60),
+        new Driver("Franco Colapinto", "/assets/drivers/colapinto.png", "col", 29, "Argentina", 13, 0, new Car(29, "A524", alpine_car.clone(), alpine, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 55),
 
         // HAAS
-        new Driver("Esteban Ocon", "/assets/drivers/ocon.png", "oco", 31, "France", 14, 0, new Car(31, "VF-24", haas_car.clone(), haas, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 110),
-        new Driver("Oliver Bearman", "/assets/drivers/bearman.png", "bea", 38, "United Kingdom", 15, 0, new Car(38, "VF-24", haas_car.clone(), haas, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 70), 
+        new Driver("Esteban Ocon", "/assets/drivers/ocon.png", "oco", 31, "France", 14, 0, new Car(31, "VF-24", haas_car.clone(), haas, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 110),
+        new Driver("Oliver Bearman", "/assets/drivers/bearman.png", "bea", 38, "United Kingdom", 15, 0, new Car(38, "VF-24", haas_car.clone(), haas, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 70), 
+        
         // RACING BULLS
-        new Driver("Liam Lawson", "/assets/drivers/lawson.png", "law", 40, "New Zealand", 17, 0, new Car(40, "VCARB01", redbullvisa_car.clone(), racingBulls, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
-        new Driver("Isack Hadjar", "/assets/drivers/hadjar.png", "had", 20, "France", 20, 0, new Car(20, "A524", redbullvisa_car.clone(), racingBulls, "S"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 45),
+        new Driver("Liam Lawson", "/assets/drivers/lawson.png", "law", 40, "New Zealand", 17, 0, new Car(40, "VCARB01", redbullvisa_car.clone(), racingBulls, "S", true), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 60),
+        new Driver("Isack Hadjar", "/assets/drivers/hadjar.png", "had", 20, "France", 20, 0, new Car(20, "A524", redbullvisa_car.clone(), racingBulls, "S", true), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 45),
 
         // KICK SAUBER
-        new Driver("Nico Hulkenberg", "/assets/drivers/hulkenberg.png", "hul", 27, "Germany", 18, 0, new Car(27, "C44", kicksauber_car.clone(), kickSauber, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 60),
-        new Driver("Gabriel Bortoleto", "/assets/drivers/bortoleto.png", "bor", 5, "Brazil", 19, 0, new Car(5, "C44", kicksauber_car.clone(), kickSauber, "M"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * scale, 13000), 50),
+        new Driver("Nico Hulkenberg", "/assets/drivers/hulkenberg.png", "hul", 27, "Germany", 18, 0, new Car(27, "C44", kicksauber_car.clone(), kickSauber, "H"), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 60),
+        new Driver("Gabriel Bortoleto", "/assets/drivers/bortoleto.png", "bor", 5, "Brazil", 19, 0, new Car(5, "C44", kicksauber_car.clone(), kickSauber, "M", true), new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.001 * CONFIG.scale, 13000), 50),
     ]
 
     // Limits the number of pilots
     const selectedDrivers = allDrivers.slice(0, Math.min(maxDrivers, 20));
-    drivers.push(...selectedDrivers);
+    DRIVERS.push(...selectedDrivers);
 
     // Add drivers to the scene
     selectedDrivers.forEach((driver) => {
@@ -838,7 +799,7 @@ async function createDriversAndTeams(maxDrivers = 20) {
         driver.startIntervalFluctuation(2.0, 0.2, 1500);
     });
 
-    renderScoreboard(drivers);
+    renderScoreboard(DRIVERS);
 
     const followContainer = document.getElementById("follow-buttons");
     selectedDrivers.forEach((driver) => {
@@ -875,7 +836,7 @@ async function createDriversAndTeams(maxDrivers = 20) {
 }
 
 function getRaycastHit(x: number, z: number) {
-    const rayOrigin = new Vector3(x, rayOriginAlt, z);
+    const rayOrigin = new Vector3(x, CONFIG.rayOriginAlt, z);
     const rayDirection = new Vector3(0, -1, 0);
     carRaycaster.set(rayOrigin, rayDirection);
     return carRaycaster.intersectObject(globe.tiles.group, false)[0];
@@ -924,7 +885,7 @@ function getSmoothHitNormal(hit) {
 }
 
 function getHitAltitude(hit, compensation = 0){
-    return (rayOriginAlt - hit.distance) + compensation;
+    return (CONFIG.rayOriginAlt - hit.distance) + compensation;
 }
 
 function setObjectOnRoad(object: Object3D){
@@ -1030,7 +991,7 @@ function updateScoreboard(fastestDriver: Driver): void {
 function updateScoreboardIntervals(): void {
   document.querySelectorAll(".driver-row").forEach((row) => {
     const driverNumber = row.getAttribute("data-driver-number");
-    const driver = drivers.find((d) => d.driverNumber.toString() === driverNumber);
+    const driver = DRIVERS.find((d) => d.driverNumber.toString() === driverNumber);
     if (driver) {
       const intervalElem = row.querySelector(".interval");
       if (intervalElem) {
@@ -1050,12 +1011,6 @@ function updateLap(lap: Number) {
 function onRender(ts, frame): void {
     const delta = clock.getDelta();
 
-    if (!frame) {
-        if (controls)
-            controls.update(delta);
-        globe.update();
-    }
-
     if (frame) {
         const referenceSpace = renderer.xr.getReferenceSpace();
         const session = renderer.xr.getSession();
@@ -1073,10 +1028,14 @@ function onRender(ts, frame): void {
                 }
             }
         }
+    } else {
+        if (controls)
+            controls.update(delta);
+        globe.update();
     }
 
     if (renderer) {
-        if (trackCurve && drivers.length > 0) {
+        if (trackCurve && DRIVERS.length > 0) {
             const speedFactor = 0.02; 
             trackTime += delta * speedFactor;
 
@@ -1085,16 +1044,16 @@ function onRender(ts, frame): void {
             // Add null check for trackCurve
 
             let normal;
-            drivers.forEach((driver, index) => {
+            DRIVERS.forEach((driver, index) => {
                 if (!trackCurve || curvePoints.length === 0 || t.length === 0 || n.length === 0 || b.length === 0) {
                     return;
                 }
 
                 const spacing = 40;
                 const idx = Math.max(0, Math.min(ls, Math.floor((trackTime * ls - index * spacing + ls) % ls)));
-                if (idx === 0 && driver.position === drivers.length) {
-                    const randomIndex = Math.floor(Math.random() * drivers.length);
-                    const fastest = drivers[randomIndex];
+                if (idx === 0 && driver.position === DRIVERS.length) {
+                    const randomIndex = Math.floor(Math.random() * DRIVERS.length);
+                    const fastest = DRIVERS[randomIndex];
 
                     updateScoreboard(fastest);
                 }
@@ -1104,9 +1063,15 @@ function onRender(ts, frame): void {
                     if(currentLap > maxLap) currentLap = 0;
                     updateLap(currentLap);
                 }
-                
-                if (idx === 0) {
+
+                const raw = trackTime - (index * spacing) / ls + 1;         // shift + garantia de positivo
+                const prog = raw % 1;                                       // progresso de 0 a 1
+                const prevProg = driver.lastIdx ?? prog;
+                driver.lastIdx = prog;
+
+                if (prevProg > prog && currentLap > 0) {
                     driver.lap++;
+                    console.log(`Driver ${driver.name} completed lap ${driver.lap}`);
                 }
 
                 const pos = curvePoints[idx].clone();
@@ -1155,7 +1120,7 @@ function onRender(ts, frame): void {
                 ud.filteredB.crossVectors(ud.filteredN, tangent).normalize();
 
                 driver.positionOnTrack(tangent, ud.filteredB, ud.filteredN, pos);
-                driver.updateLabel(camera, labelOffset);
+                driver.updateLabel(camera, LABEL_OFFSET);
             });
         }
 
@@ -1168,11 +1133,11 @@ function onRender(ts, frame): void {
             const forward = new Vector3(1, 0, 0).applyQuaternion(carQuat); // look ahead
             const worldUp = new Vector3(0, 1, 0); // upWorld
 
-            const offsetBehind = forward.clone().multiplyScalar(0.02 * scale); // Z Camera Depth
-            const offsetAbove = worldUp.clone().multiplyScalar(0.65 * scale);  // Y da camera
+            const offsetBehind = forward.clone().multiplyScalar(0.02 * CONFIG.scale); // Z Camera Depth
+            const offsetAbove = worldUp.clone().multiplyScalar(0.65 * CONFIG.scale);  // Y da camera
 
             const cameraPos = carPos.clone().add(offsetBehind).add(offsetAbove);
-            const lookAt = carPos.clone().add(forward.clone().multiplyScalar(0.1 * scale));
+            const lookAt = carPos.clone().add(forward.clone().multiplyScalar(0.1 * CONFIG.scale));
 
             // if(cockpitView) {
             //     currentFollowDriver.camera.position.set(-3, 0, 2);
@@ -1180,14 +1145,20 @@ function onRender(ts, frame): void {
             //     currentFollowDriver.camera.position.set(-20, 0, 90);
             // }
 
+            // console.log("Camera Position: ", currentFollowDriver.camera.position);
+
             rendererCamera = currentFollowDriver.camera;
-        }
-        else{
+        } else {
             rendererCamera = camera;
         }
 
         if (detailCamRenderer && currentDetailDriver && camViewEnabled) {
             detailCamRenderer.render(scene, currentDetailDriver.camera);
+        }
+
+        if (cockpitView && renderer.xr.isPresenting && currentFollowDriver) {
+            xrRig.updateMatrixWorld(true);
+            rendererCamera = xrRig.children[0] as PerspectiveCamera;
         }
 
         renderer.render(scene, rendererCamera);
@@ -1205,9 +1176,9 @@ function onXRSession() {
         arPlacingGeomap = true;
     }
 
-        // Se nenhum piloto estiver sendo seguido, seguir o primeiro
-    if (!currentFollowDriver && drivers.length > 0) {
-        currentFollowDriver = drivers[0]; // ou qualquer lógica que você queira
+    // Se nenhum piloto estiver sendo seguido, seguir o primeiro
+    if (!currentFollowDriver && DRIVERS.length > 0) {
+        currentFollowDriver = DRIVERS[0];
         currentFollowDriver.hideLabel();
         currentFollowDriver.hideLine();
         controls.enabled = false;
@@ -1215,20 +1186,23 @@ function onXRSession() {
 }
 
 function onVRSession() {
-    if (!currentFollowDriver && drivers.length > 0) {
-        currentFollowDriver = drivers[0]; // ou qualquer lógica que você queira
+    // Se nenhum piloto estiver sendo seguido, seguir o primeiro
+    if (!currentFollowDriver && DRIVERS.length > 0) {
+        currentFollowDriver = DRIVERS[0];
         currentFollowDriver.hideLabel();
         currentFollowDriver.hideLine();
         controls.enabled = false;
     }
+
+    cockpitView = true;
 
     if (cockpitView && currentFollowDriver) {
         const car = currentFollowDriver.car.car;
         const carPos = car.getWorldPosition(new Vector3());
         const carQuat = car.getWorldQuaternion(new Quaternion());
 
-        xrRig.position.copy(carPos);
-        xrRig.quaternion.copy(carQuat);
+        xrRig.clear();
+        xrRig.add(currentFollowDriver.camera);
         xrRig.updateMatrixWorld(true);
     }
 }
@@ -1242,9 +1216,9 @@ function onSessionEnd() {
 function onSelect(event) {
     if (reticle && reticle.visible) {
         const clippingPlugin = globe.tiles.getPluginByName('GLOBE_CLIPPING_PLUGIN');
-        reticle.matrix.decompose(globeContainer.position, globeContainer.quaternion, globeContainer.scale);
-        globeContainer.scale.setScalar(scale);
-        globeContainer.updateMatrixWorld(true);
+        reticle.matrix.decompose(GLOBE_CONTAINER.position, GLOBE_CONTAINER.quaternion, GLOBE_CONTAINER.scale);
+        GLOBE_CONTAINER.scale.setScalar(CONFIG.scale);
+        GLOBE_CONTAINER.updateMatrixWorld(true);
 
         //         const clippingPlanes = clippingPlugin.clippingPlanes.map(plane => plane.clone().applyMatrix4(globeContainer.matrixWorld));
         //         clippingPlugin.applyClipping(clippingPlanes);
@@ -1257,75 +1231,119 @@ function onSelect(event) {
 }
 
 function showDriverDetails(driver: Driver) {
-  if (!detailsPanel) return;
+    if (!detailsPanel) return;
 
-  currentDetailDriver = driver;
-  detailsPanel.style.display = 'block';
+    currentDetailDriver = driver;
+    detailsPanel.style.display = 'block';
 
-  const camContainer = detailsPanel.querySelector('.cam-view') as HTMLElement;
-  const labelCam = camContainer.querySelector('.label-cam') as HTMLElement;
+    const camContainer = detailsPanel.querySelector('.cam-view') as HTMLElement;
+    const labelCam = camContainer.querySelector('.label-cam') as HTMLElement;
 
-  // Inicializa o renderer da mini-câmera
-  if (!detailCamRenderer) {
-    detailCamRenderer = new WebGLRenderer({ antialias: true, alpha: true });
-    detailCamRenderer.domElement.style.width   = '100%';
-    detailCamRenderer.domElement.style.height  = '100%';
-    detailCamRenderer.domElement.style.display = camViewEnabled ? 'block' : 'none';
-    camContainer.appendChild(detailCamRenderer.domElement);
-  }
-  // Ajusta resolução interna do renderer
-  const w = camContainer.clientWidth, h = camContainer.clientHeight;
-  detailCamRenderer.setSize(w, h, false);
-
-  // Usa o SVG como botão de toggle da mini-câmera
-  if (!labelCam.dataset.toggleInitialized) {
-    labelCam.style.cursor = 'pointer';
-    labelCam.addEventListener('click', () => {
-      camViewEnabled = !camViewEnabled;
-      detailCamRenderer!.domElement.style.display = camViewEnabled ? 'block' : 'none';
-      labelCam.style.display = camViewEnabled ? 'none' : 'flex';
-    });
-    labelCam.dataset.toggleInitialized = 'true';
-  }
-  // Estado inicial do SVG
-  labelCam.style.display = camViewEnabled ? 'none' : 'flex';
-
-  // Preenche os campos de texto/imagem/etc
-  const info = detailsPanel.querySelector('.driver-info')!;
-  info.querySelector('p')!.textContent = String(driver.position);
-  info.querySelector('.bar')!.style.backgroundColor = driver.car.team.color;
-  info.querySelector('p.text-uppercase')!.textContent = driver.name.split(' ')[1].toUpperCase();
-
-  const drsDiv = detailsPanel.querySelector('.drs')!;
-  drsDiv.classList.toggle('active', !!driver.car.drs);
-
-  const imgEl = detailsPanel.querySelector('.driver-img img')!;
-  imgEl.src = driver.img;
-  imgEl.alt = driver.name;
-
-  detailsPanel.querySelector('.lap p')!.textContent = `${driver.lap}/${maxLap}`;
-  detailsPanel.querySelector('.fastest-lap-time p:last-child')!.textContent = driver.fastestLap || '---';
-
-  // Botão de follow mantém só o toggle de seguir/parar, sem mexer em col-8
-  const camBtn = detailsPanel.querySelector('.cam-button')!;
-  camBtn.onclick = (e) => {
-    e.stopPropagation();
-    if (currentFollowDriver === driver) {
-        currentFollowDriver = null;
-        controls.enabled = true;
-        camBtn.classList.remove('active');
-    } else {
-      if (currentFollowDriver) {
-        currentFollowDriver.showLabel();
-        currentFollowDriver.showLine();
-      }
-      currentFollowDriver = driver;
-      driver.hideLabel();
-      driver.hideLine();
-      controls.enabled = false;
-      camBtn.classList.add('active');
+    // Minicam initialization
+    if (!detailCamRenderer) {
+        detailCamRenderer = new WebGLRenderer({ antialias: true, alpha: true });
+        detailCamRenderer.domElement.style.width   = '100%';
+        detailCamRenderer.domElement.style.height  = '100%';
+        detailCamRenderer.domElement.style.display = camViewEnabled ? 'block' : 'none';
+        camContainer.appendChild(detailCamRenderer.domElement);
     }
-  };
+    const w = camContainer.clientWidth, h = camContainer.clientHeight;
+    detailCamRenderer.setSize(w, h, false);
+
+    // SVG Toggle
+    if (!labelCam.dataset.toggleInitialized) {
+        labelCam.style.cursor = 'pointer';
+        labelCam.addEventListener('click', () => {
+            camViewEnabled = !camViewEnabled;
+
+            if(camViewEnabled) {
+                labelCam.classList.add('active');
+            } else {
+                labelCam.classList.remove('active');
+            }
+
+            detailCamRenderer!.domElement.style.display = camViewEnabled ? 'block' : 'none';
+        });
+        labelCam.dataset.toggleInitialized = 'true';
+    }
+    if(camViewEnabled) {
+        labelCam.classList.add('active');
+    } else {
+        labelCam.classList.remove('active');
+    }
+
+    // Preenche os campos de texto/imagem/etc
+    const info = detailsPanel.querySelector('.driver-info')!;
+    info.querySelector('p')!.textContent = String(driver.position);
+    (info.querySelector('.bar') as HTMLElement)!.style.backgroundColor = driver.car.team.color;
+    info.querySelector('p.text-uppercase')!.textContent = driver.name.split(' ')[1].toUpperCase();
+
+    const drsDiv = detailsPanel.querySelector('.drs')!;
+    drsDiv.classList.toggle('active', !!driver.car.drs);
+
+    const closeBtn = detailsPanel.querySelector('.close-button') as HTMLElement;
+    closeBtn.onclick = () => {
+        detailsPanel.style.display = 'none';
+        currentDetailDriver = null;
+        camViewEnabled = false;
+        if (detailCamRenderer) detailCamRenderer.domElement.style.display = 'none';
+        const labelCam = detailsPanel.querySelector('.label-cam') as HTMLElement;
+        if (labelCam) labelCam.style.display = 'none';
+    };
+
+    const imgEl = detailsPanel.querySelector('.driver-img img') as HTMLImageElement;
+    imgEl.src = driver.img;
+    imgEl.alt = driver.name;
+
+    detailsPanel.querySelector('.lap p')!.textContent = `${driver.lap}/${maxLap}`;
+    detailsPanel.querySelector('.fastest-lap-time p:last-child')!.textContent = driver.fastestLap || '---';
+
+    // Follow button
+    const camBtn = detailsPanel.querySelector('.cam-button')! as HTMLElement;
+
+    camBtn.classList.toggle('active', currentFollowDriver === driver);
+    
+    camBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (currentFollowDriver === driver) {
+            currentFollowDriver = null;
+            controls.enabled = true;
+            camBtn.classList.remove('active');
+        } else {
+            if (currentFollowDriver) {
+                currentFollowDriver.showLabel();
+                currentFollowDriver.showLine();
+            }
+            currentFollowDriver = driver;
+            driver.hideLabel();
+            driver.hideLine();
+            controls.enabled = false;
+            camViewEnabled = false;
+            if (detailCamRenderer) detailCamRenderer.domElement.style.display = 'none';
+            labelCam.classList.remove('active');
+            camBtn.classList.add('active');
+        }
+    };
+}
+
+async function loadLoadingScreen() {
+  const loadingContainer = document.getElementById("loading-screen");
+
+  if (!loadingContainer) return;
+
+  const svgRes = await fetch("assets/svg/loading/loading.svg.html");
+  const svgText = await svgRes.text();
+  loadingContainer.innerHTML = svgText;
+
+  const cssLink = document.createElement("link");
+  cssLink.rel = "stylesheet";
+  cssLink.href = "assets/svg/loading/loading.css";
+  document.head.appendChild(cssLink);
+
+  const script = document.createElement("script");
+  script.src = "assets/svg/loading/loading.js";
+  script.defer = true;
+  document.body.appendChild(script);
 }
 
 
