@@ -1,11 +1,13 @@
 /* Variáveis de cores */
 :root {
   --color-text: rgb(225, 227, 234);
+  --color-text-secondary: rgb(158, 158, 158);
   --color-text-light: rgb(238, 238, 238);
   --color-bg-header: rgb(14, 18, 26);
   --color-border: rgb(37, 40, 47);
   --color-lap-title: rgb(140, 139, 149);
   --color-bg-body: rgba(23, 25, 36, 0.904);
+  --color-bg-body-variant: rgb(20, 23, 37);
   --color-bg-position: rgb(14, 13, 19);
   --color-tire: rgb(255, 238, 0);
   --color-first-position-bg: rgb(201, 7, 5);
@@ -255,7 +257,7 @@ body {
 }
 
 .details-container {
-  background-color: var(--color-border);
+  background-color: var(--color-bg-header);
   border-radius: 10px 10px 0px 0px;
 }
   .details-container p {
@@ -295,7 +297,7 @@ body {
 }
 
 .driver-statistics {
-  background-color: var(--color-bg-header);
+  background-color: var(--color-bg-body-variant);
   border-radius: 0px 0px 10px 10px;
 }
 
@@ -407,3 +409,78 @@ body {
   fill: red;  
   animation: blink-red 1s infinite ease-in-out;
 }
+
+#race-view {
+  width: 280px;
+}
+
+#race-view .title-race {
+  background-color: var(--color-bg-header);
+
+  border-radius: 5px;
+}
+  #race-view .title-race .ic-sync {
+    transition: all 0.2s;
+    cursor: pointer;
+    border-radius: 50px;
+    padding: 4px;
+    user-select: none;
+  }
+    #race-view .title-race .ic-sync:hover {
+      background-color: rgba(99, 98, 107, 0.644);
+    }
+
+
+#weather-conditions {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+#weather-conditions .top-bar {
+  background-color: var(--color-bg-header);
+}
+  #weather-conditions .top-bar p {
+    font-size: 14px;
+  }
+
+#weather-conditions .body-conditions {
+  background-color: var(--color-bg-body);
+}
+  #weather-conditions .body-conditions p {
+    color: var(--color-text);
+  }
+
+#weather-conditions #conditions {
+  background-color: var(--color-bg-body);
+}
+  #weather-conditions #conditions p {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+  }
+#weather-conditions #conditions .infos .humidity p {
+  color: #4b96d0;
+}
+
+#race-view #track-conditions {
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+#race-view #track-conditions .top-bar {
+  background-color: var(--color-bg-header);
+}
+  #race-view #track-conditions .top-bar p {
+    font-size: 14px;
+  }
+
+#race-view #track-conditions .infos {
+  background-color: var(--color-bg-body);
+  backdrop-filter: blur(2px);
+}
+
+#race-view #track-conditions .infos .info-item {
+  
+}
+  #race-view #track-conditions .infos .info-item p {
+    font-size: 13px;
+  }

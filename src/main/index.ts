@@ -52,9 +52,12 @@ import { Globe } from "../globe";
 import { Geodetic, radians } from "@takram/three-geospatial";
 import { Team } from "../models/Team";
 import { Driver } from "../models/Driver";
+import { Weather } from "../models/Weather";
+import { Track } from "../models/Track";
 import { Car } from "../models/Car";
 import CameraControls from "camera-controls";
 import { loadCarModel } from "../utils/modelLoader";
+import { RaceViewUI } from "../utils/RaceViewUI";
 import { TilesFadePlugin } from "3d-tiles-renderer/plugins";
 import { update } from "three/examples/jsm/libs/tween.module.js";
 import { Const } from "three/tsl";
@@ -158,6 +161,13 @@ const cameraPositions: Vector3[] = [
     new Vector3(4914449.702275728, -812735.0475000107, 3970834.0878650616).multiplyScalar(CONFIG.globalScale),
     new Vector3(4914668.737085846, -813010.9913910049, 3971105.824077781).multiplyScalar(CONFIG.globalScale),
 ];
+
+/* Weather and Track */
+
+let weather = new Weather("15:16:00", 23.7, 5, false);
+let track = new Track(36.0, "Dry", 0.0, "Very Low", "Normal");
+
+const raceView = new RaceViewUI();
 
 for (const [lon, lat, alt] of rawLLA) {
     const geo = new Geodetic(radians(lon), radians(lat), alt);
@@ -378,6 +388,10 @@ async function init(): Promise<void> {
     
     document.getElementById("camera-position-2")?.addEventListener("click", () => {
         if (CONFIG.flags.enableRecording) recorder.stop();
+    });
+
+    document.getElementById("ic-sync")?.addEventListener("click", () => {
+        raceView.updateInterface(weather, track);
     });
 
     if (CONFIG.flags.showOrigin) {
@@ -1235,6 +1249,8 @@ function showDriverDetails(driver: Driver) {
 
     currentDetailDriver = driver;
     detailsPanel.style.display = 'block';
+
+    raceView.updateInterface(weather, track);
 
     const camContainer = detailsPanel.querySelector('.cam-view') as HTMLElement;
     const labelCam = camContainer.querySelector('.label-cam') as HTMLElement;
