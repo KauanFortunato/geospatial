@@ -226,7 +226,7 @@ body {
   border-radius: 3px;
 }
 
-#scoreboard-view {
+#scoreboard-view, #weather-view {
   display: none;
 }
 
@@ -391,8 +391,45 @@ body {
     transform-origin: top left;
   }
 
-  .checkbox-label {
-    display: block;
+  #weather-view:checked ~ #race-view {
+    transform: scale(0);
+    transform-origin: top right;
+  }
+
+  #race-view {
+    top: 90px !important;
+  }
+
+  .checkbox-label, .weather-info {
+    display: block !important;
+  }
+
+  #driver-details {
+    width: 90%;
+    left: 50%;
+    bottom: 70px;
+    transform: translateX(-50%) !important;
+  }
+
+  #driver-details .driver-statistics .driver-timings p, #driver-details .driver-statistics .driver-timings b {
+    font-size: 12px;
+  }
+
+  #driver-details .fastest-lap-time .label {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .driver-statistics .cam-view svg {
+    width: 32px;
+    height: 32px;
+  }
+
+  .driver-statistics .cam-view p {
+    font-size: 12px;
   }
 }
 
@@ -484,3 +521,25 @@ body {
   #race-view #track-conditions .infos .info-item p {
     font-size: 13px;
   }
+
+.weather-info {
+  user-select: none;
+  cursor: pointer;
+  position: absolute;
+  top: 60px;
+  right: 10px;
+  display: none;
+
+  background-color: var(--color-bg-body);
+  backdrop-filter: blur(10px);
+  padding: 5px;
+  border-radius: 8px;
+  color: white;
+  border: none !important;
+}
+
+#race-view {
+  transform-origin: top right;
+  transition: all 0.1s ease-in-out;
+}
+

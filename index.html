@@ -38,6 +38,14 @@
       </div>
     </div>
 
+    <input type="checkbox" id="weather-view" checked="true" class="form-check-input" />
+    <label class="weather-info" for="weather-view">
+      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" class="bi bi-cloud-sun-fill" viewBox="0 0 16 16">
+        <path d="M11.473 11a4.5 4.5 0 0 0-8.72-.99A3 3 0 0 0 3 16h8.5a2.5 2.5 0 0 0 0-5z"/>
+        <path d="M10.5 1.5a.5.5 0 0 0-1 0v1a.5.5 0 0 0 1 0zm3.743 1.964a.5.5 0 1 0-.707-.707l-.708.707a.5.5 0 0 0 .708.708zm-7.779-.707a.5.5 0 0 0-.707.707l.707.708a.5.5 0 1 0 .708-.708zm1.734 3.374a2 2 0 1 1 3.296 2.198q.3.423.516.898a3 3 0 1 0-4.84-3.225q.529.017 1.028.129m4.484 4.074c.6.215 1.125.59 1.522 1.072a.5.5 0 0 0 .039-.742l-.707-.707a.5.5 0 0 0-.854.377M14.5 6.5a.5.5 0 0 0 0 1h1a.5.5 0 0 0 0-1z"/>
+      </svg>
+    </label>
+
     <div id="race-view" class="position-absolute top-0 end-0 me-3 mt-3 d-flex flex-column gap-2 ">
       <div class="title-race w-100 justify-content-center align-content-center py-1 position-relative">
         <p class="m-0 text-uppercase text-center">Race View</p>
@@ -52,19 +60,19 @@
 
       <div id="weather-conditions">
         <div class="top-bar d-flex justify-content-between align-items-center px-2 py-2">
-          <p class="m-0">--:--:--</p>
+          <p id="time" class="m-0">--:--:--</p>
 
           <div class="body-conditions d-flex justify-content-end align-items-center">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="#ffffff" class="bi bi-cloud-fill" viewBox="0 0 16 16">
               <path d="M4.406 3.342A5.53 5.53 0 0 1 8 2c2.69 0 4.923 2 5.166 4.579C14.758 6.804 16 8.137 16 9.773 16 11.569 14.502 13 12.687 13H3.781C1.708 13 0 11.366 0 9.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383"/>
             </svg>
 
-            <p class="m-0 ms-2">--.-°C</p>
+            <p id="temp" class="m-0 ms-2">--.-°C</p>
           </div>
         </div>
 
         <div id="conditions" class="d-flex justify-content-between align-items-center p-2">
-          <p class="m-0">------</p>
+          <p id="last-att" class="m-0">------</p>
 
           <div class="infos d-flex gap-2">
             <div class="humidity g-1 d-flex align-items-center gap-1">
@@ -72,7 +80,7 @@
                 <path d="M8 16a6 6 0 0 0 6-6c0-1.655-1.122-2.904-2.432-4.362C10.254 4.176 8.75 2.503 8 0c0 0-6 5.686-6 10a6 6 0 0 0 6 6M6.646 4.646l.708.708c-.29.29-1.128 1.311-1.907 2.87l-.894-.448c.82-1.641 1.717-2.753 2.093-3.13"/>
               </svg>
 
-              <p class="m-0">-%</p>
+              <p id="humidity" class="m-0">-%</p>
             </div>
 
             <div class="vr" style="height: 100%; width: 1px;"></div>
@@ -89,14 +97,14 @@
           <p class="m-0 text-uppercase">Track</p>
 
           <div class="body-conditions d-flex justify-content-end align-items-center">
-            <p class="m-0 ms-2">--.-°C</p>
+            <p id="track-temp" class="m-0 ms-2">--.-°C</p>
           </div>
         </div>
 
         <div class="infos d-flex flex-column px-2">
           <div class="info-item d-flex justify-content-between align-items-center p-1">
             <p class="m-0">Dry</p>
-            <p class="m-0">-.-- mm</p>
+            <p id="status" class="m-0">-.-- mm</p>
           </div>
           
           <hr class="hr m-0" />
@@ -107,7 +115,7 @@
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-exclamation-diamond-fill" viewBox="0 0 16 16">
                 <path d="M9.05.435c-.58-.58-1.52-.58-2.1 0L.436 6.95c-.58.58-.58 1.519 0 2.098l6.516 6.516c.58.58 1.519.58 2.098 0l6.516-6.516c.58-.58.58-1.519 0-2.098zM8 4c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995A.905.905 0 0 1 8 4m.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/>
               </svg>
-              <p class="m-0">------</p>
+              <p id="rubber" class="m-0">------</p>
             </div>
           </div>
 
@@ -115,7 +123,7 @@
 
           <div class="info-item d-flex justify-content-between align-items-center p-1">
             <p class="m-0">Grip</p>
-            <p class="m-0">------</p>
+            <p id="grip" class="m-0">------</p>
           </div>
         </div>
       </div>
@@ -141,7 +149,7 @@
       </div>
 
       <div class="driver-statistics d-flex p-1 w-100" style="display: none;">
-        <div class="driver-img ratio-1x1 p-1 col position-relative">
+        <div class="driver-img ratio-1x1 p-1 col position-relative d-flex align-items-center justify-content-center">
           <img src="/assets/drivers/verstappen.png" class="ratio-1x1 w-100" alt="Driver image">
 
           <div class="cam-button d-flex justify-content-center align-content-center translate-middle">

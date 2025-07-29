@@ -104,6 +104,7 @@ const CONFIG = {
     showLodHelpers:  false, // Show LOD cameras helpers
     useClipping:     false, // Clip the globe
   },
+  gpxUrl: new URL("/assets/tracks/estoril.gpx", import.meta.url).href,
 } as const;
 
 let controls: CameraControls;
@@ -121,6 +122,8 @@ let hitTestSourceRequested = false;
 let hitTestSource: XRHitTestSource | null = null;
 let lodCameras: PerspectiveCamera[] = [];
 
+let btnXR: HTMLElement | null = null;
+let btnVR: HTMLElement | null = null;
 let xrRig: Group;
 
 let recorder;
@@ -164,10 +167,11 @@ const cameraPositions: Vector3[] = [
 
 /* Weather and Track */
 
-let weather = new Weather("15:16:00", 23.7, 5, false);
-let track = new Track(36.0, "Dry", 0.0, "Very Low", "Normal");
+const weather = new Weather("15:16:00", 23.7, 5, true);
+const track = new Track(36.0, "Dry", 0.0, "Very Low", "Normal");
 
 const raceView = new RaceViewUI();
+raceView.updateInterface(weather, track);
 
 for (const [lon, lat, alt] of rawLLA) {
     const geo = new Geodetic(radians(lon), radians(lat), alt);
@@ -267,12 +271,14 @@ async function init(): Promise<void> {
     console.log("Mobile: ", isMobileDevice());
 
     setupGraphicsEngine();
-    setupXR();
     setupLight();
     setupMainCamera();
     setupLODCameras();
     setupCameraControls();
     updateLap(currentLap);
+
+    setupXR();  
+    setupVR();
 
     if (CONFIG.flags.enableRecording) {
         setupRecordingFeatures();
@@ -312,9 +318,8 @@ async function init(): Promise<void> {
         await createDriversAndTeams(maxDrivers);
     })();
 
-    const gpxUrl = new URL("/assets/tracks/estoril.gpx", import.meta.url).href;
     const gpxReady = (async () => {
-        const points = await loadGPXasECEF(gpxUrl);
+        const points = await loadGPXasECEF(CONFIG.gpxUrl);
         if (points.length > 1) {
             // cria curva CatmullRom
             trackCurve = new CatmullRomCurve3(points, false);
@@ -367,7 +372,7 @@ async function init(): Promise<void> {
             geom.setIndex(new BufferAttribute(indices, 1));
             geom.computeVertexNormals();
             const roadMesh = new Mesh(geom, new MeshStandardMaterial({ color: 0xfcba03 }));
-            globe.tiles.group.add(roadMesh);
+            // globe.tiles.group.add(roadMesh);
         } else {
             console.warn("Nenhum ponto GPX carregado");
         }
@@ -434,23 +439,14 @@ function setupXR() {
     renderer.xr.enabled = true;
     renderer.xr.addEventListener('sessionend', onSessionEnd);
 
-    let xrButton = XRButton.createButton(renderer, {
+    btnXR = XRButton.createButton(renderer, {
         requiredFeatures: ['hit-test'],
         optionalFeatures: []
     });
 
-    let vrButton = VRButton.createButton(renderer, {
-        requiredFeatures: []
-    })
+    btnXR.addEventListener('click', onXRSession);
+    document.body.appendChild(btnXR);
 
-    renderer.xr.addEventListener('sessionstart', onVRSession);
-
-    xrButton.addEventListener('click', onXRSession);
-    // document.body.appendChild(xrButton);
-
-    // xrButton.addEventListener('click', onVRSession);
-    document.body.appendChild(vrButton);
-    
     const tLoader = new TextureLoader();
     reticle = new Mesh(
         new BoxGeometry(9.15 / 10, 6.10 / 10, 0.01).rotateX(-Math.PI / 2),
@@ -484,6 +480,34 @@ function setupXR() {
             session.addEventListener('select', onSelect);
         }
     });
+}
+
+function setupVR() {
+  btnVR = VRButton.createButton(renderer);
+  btnVR.classList.add("vr-button");
+  btnVR.style.position = "absolute";
+  btnVR.style.bottom = "10px";
+  btnVR.style.right  = "10px";
+  btnVR.addEventListener("click", onVRSession);
+
+  renderer.xr.addEventListener("sessionstart", () => {
+    cockpitView = true;
+  });
+  renderer.xr.addEventListener("sessionend", () => {
+    cockpitView = false;
+    updateEntryButtons(); 
+  });
+}
+
+function updateEntryButtons() {
+  if (btnXR && btnXR.parentElement) btnXR.parentElement.removeChild(btnXR);
+  if (btnVR && btnVR.parentElement) btnVR.parentElement.removeChild(btnVR);
+  if (renderer.xr.isPresenting) return;
+  if (currentFollowDriver) {
+    if (btnVR) document.body.appendChild(btnVR);
+  } else {
+    if (btnXR) document.body.appendChild(btnXR);
+  }
 }
 
 function setupLight() {
@@ -814,39 +838,6 @@ async function createDriversAndTeams(maxDrivers = 20) {
     });
 
     renderScoreboard(DRIVERS);
-
-    const followContainer = document.getElementById("follow-buttons");
-    selectedDrivers.forEach((driver) => {
-        const btn = document.createElement("button");
-        btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
-        btn.addEventListener("click", () => {
-            if (currentFollowDriver === driver) {
-                currentFollowDriver = null;
-                driver.showLabel();
-                driver.showLine();
-                controls.enabled = true;
-                btn.textContent = `Seguir ${driver.acronym.toUpperCase()}`;
-            } else {
-                if (currentFollowDriver) {
-                    currentFollowDriver.showLabel();
-                    currentFollowDriver.showLine();
-                }
-
-                currentFollowDriver = driver;
-                currentFollowDriver.hideLabel();
-                currentFollowDriver.hideLine();
-                controls.enabled = false;
-
-                document.querySelectorAll("#follow-buttons button").forEach((b) => {
-                    const acr = b.textContent?.split(" ")[1];
-                    b.textContent = `Seguir ${acr}`;
-                });
-
-                btn.textContent = "Parar de Seguir";
-            }
-        });
-        followContainer?.appendChild(btn);
-    });
 }
 
 function getRaycastHit(x: number, z: number) {
@@ -1186,39 +1177,41 @@ function onWindowResize(): void {
 }
 
 function onXRSession() {
-    if (!renderer.xr.isPresenting) {
-        arPlacingGeomap = true;
-    }
-
-    // Se nenhum piloto estiver sendo seguido, seguir o primeiro
-    if (!currentFollowDriver && DRIVERS.length > 0) {
-        currentFollowDriver = DRIVERS[0];
-        currentFollowDriver.hideLabel();
-        currentFollowDriver.hideLine();
-        controls.enabled = false;
-    }
+  currentFollowDriver = null;
+  arPlacingGeomap = true;
+  controls.enabled = true;
+  updateEntryButtons();
 }
 
 function onVRSession() {
-    // Se nenhum piloto estiver sendo seguido, seguir o primeiro
-    if (!currentFollowDriver && DRIVERS.length > 0) {
-        currentFollowDriver = DRIVERS[0];
-        currentFollowDriver.hideLabel();
-        currentFollowDriver.hideLine();
-        controls.enabled = false;
-    }
+  if (!currentFollowDriver) {
+    console.warn("Selecione um piloto antes de entrar em VR");
+    return;
+  }
 
-    cockpitView = true;
+  controls.enabled    = false;
+  cockpitView         = true;
+  arPlacingGeomap     = false;
 
-    if (cockpitView && currentFollowDriver) {
-        const car = currentFollowDriver.car.car;
-        const carPos = car.getWorldPosition(new Vector3());
-        const carQuat = car.getWorldQuaternion(new Quaternion());
+  scene.remove(xrRig);
+  const carObj = currentFollowDriver.car.car;
+  carObj.add(xrRig);
 
-        xrRig.clear();
-        xrRig.add(currentFollowDriver.camera);
-        xrRig.updateMatrixWorld(true);
-    }
+  const bb = new Box3().setFromObject(carObj);
+  const roofHeightZ = bb.max.z - bb.min.z;
+
+  // coloca o rig no meio dessa altura, em Z
+  xrRig.position.set(0, 0, roofHeightZ * 0.5);
+
+  const qCorr = new Quaternion().setFromEuler(
+    new Euler(Math.PI / 2, 0, 0, /* ordem default 'XYZ' */)
+  );
+  xrRig.quaternion.copy(carObj.quaternion).multiply(qCorr);
+
+  xrRig.clear();
+  xrRig.add(currentFollowDriver.camera);
+
+  updateEntryButtons();
 }
 
 function onSessionEnd() {
@@ -1339,6 +1332,7 @@ function showDriverDetails(driver: Driver) {
             labelCam.classList.remove('active');
             camBtn.classList.add('active');
         }
+        updateEntryButtons();
     };
 }
 

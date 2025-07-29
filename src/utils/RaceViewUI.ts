@@ -3,31 +3,42 @@ import { Track } from '../models/Track';
 
 export class RaceViewUI {
   updateWeatherUI(weather: Weather): void {
-    const timeEl = document.querySelector('#weather-conditions .top-bar p')!;
-    const tempEl = document.querySelector('#weather-conditions .body-conditions p')!;
-    const humidityEl = document.querySelector('.humidity p')!;
+    const timeEl     = document.querySelector('#time')! as HTMLParagraphElement;
+    const tempEl     = document.querySelector('#temp')! as HTMLParagraphElement;
+    const humidityEl = document.querySelector('#humidity')! as HTMLParagraphElement;
+    const descEl     = document.querySelector('#last-att')! as HTMLParagraphElement;
 
-    timeEl.textContent = weather.time;
-    tempEl.textContent = `${weather.temperature.toFixed(1)}°C`;
+    timeEl.textContent     = weather.time;
+    tempEl.textContent     = `${weather.temperature.toFixed(1)}°C`;
     humidityEl.textContent = `${weather.humidity}%`;
+    descEl.textContent     = weather.lastAtt;
+    
+  const oldSvg = document.querySelector('#weather-conditions .body-conditions svg')!;
+      
+    const SUN_SVG  = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-brightness-high-fill" viewBox="0 0 16 16">
+        <path d="M12 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0M8 0a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 0m0 13a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 13m8-5a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2a.5.5 0 0 1 .5.5M3 8a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2A.5.5 0 0 1 3 8m10.657-5.657a.5.5 0 0 1 0 .707l-1.414 1.415a.5.5 0 1 1-.707-.708l1.414-1.414a.5.5 0 0 1 .707 0m-9.193 9.193a.5.5 0 0 1 0 .707L3.05 13.657a.5.5 0 0 1-.707-.707l1.414-1.414a.5.5 0 0 1 .707 0m9.193 2.121a.5.5 0 0 1-.707 0l-1.414-1.414a.5.5 0 0 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .707M4.464 4.465a.5.5 0 0 1-.707 0L2.343 3.05a.5.5 0 1 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .708"/>
+      </svg>
+    `
+    const CLOUD_SVG = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-cloud-fill" viewBox="0 0 16 16">
+        <path d="M4.406 3.342A5.53 5.53 0 0 1 8 2c2.69 0 4.923 2 5.166 4.579C14.758 6.804 16 8.137 16 9.773 16 11.569 14.502 13 12.687 13H3.781C1.708 13 0 11.366 0 9.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383"/>
+      </svg>
+    `
+    oldSvg.outerHTML = weather.sun ? SUN_SVG : CLOUD_SVG;
 
-    // Optional: Update sun/cloud icon dynamically based on weather.sun
-    const icon = document.querySelector('#weather-conditions .body-conditions svg')!;
-    icon.setAttribute('class', weather.sun ? 'bi bi-brightness-low-fill' : 'bi bi-cloud-fill');
   }
 
   updateTrackUI(track: Track): void {
-    const trackTempEl = document.querySelector('#track-conditions .body-conditions p')!;
-    const statusEl = document.querySelectorAll('#track-conditions .info-item p')[0];
-    const waterEl = document.querySelectorAll('#track-conditions .info-item p')[1];
-    const rubberEl = document.querySelectorAll('#track-conditions .info-item div p')[0];
-    const gripEl = document.querySelectorAll('#track-conditions .info-item p')[3];
+    const trackTempEl = document.querySelector('#track-temp')! as HTMLParagraphElement;
+    const statusEl    = document.querySelector('#status')!    as HTMLParagraphElement;
+    const rubberEl    = document.querySelector('#rubber')!    as HTMLParagraphElement;
+    const gripEl      = document.querySelector('#grip')!      as HTMLParagraphElement;
 
     trackTempEl.textContent = `${track.trackTemperature.toFixed(1)}°C`;
-    statusEl.textContent = track.status;
-    waterEl.textContent = `${track.waterLevel.toFixed(2)} mm`;
-    rubberEl.textContent = track.rubberLevel;
-    gripEl.textContent = track.grip;
+    statusEl.textContent    = track.status;
+    rubberEl.textContent    = track.rubberLevel;
+    gripEl.textContent      = track.grip;
   }
 
   updateInterface(weather: Weather, track: Track): void {
